@@ -1,0 +1,48 @@
+set nocompatible
+
+syntax on
+filetype plugin indent on
+
+set hidden
+set lazyredraw
+set ttyfast
+
+set history=999
+set undolevels=999
+set autoread
+
+set nobackup
+set nowritebackup
+set noswapfile
+
+set gdefault
+set magic
+set hlsearch
+set incsearch
+set ignorecase smartcase
+set clipboard=unnamedplus
+set mouse=a
+
+set cursorline
+set number
+set showmatch
+set title
+
+set scrolloff=5
+set sidescrolloff=7
+set sidescroll=1
+
+set expandtab
+
+set softtabstop=2
+set tabstop=2
+set shiftwidth=2
+set smarttab
+set backspace=2
+
+command! -bang -nargs=* Rgp call fzf#vim#grep("rgp --column --line-number --no-heading --color=always --smart-case --hidden ".shellescape(<q-args>), 0, fzf#vim#with_preview({'options': '--delimiter : --nth 3..'}), <bang>0)
+
+command! -bang -nargs=* Rgpl call fzf#vim#grep("rgp --column --line-number --no-heading --color=always --smart-case --hidden ".shellescape(<q-args>), 0, <bang>0)
+
+nnoremap <leader>f :Rgp <c-r><c-w><CR>
+nnoremap <leader>l :Rgpl <c-r><c-w><CR>

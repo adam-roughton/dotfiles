@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+set -e
+
+SEARCH_RES_DIR=$(mktemp -d --suffix "@rg-search")
+trap "{ rm -r $SEARCH_RES_DIR; }" EXIT
+
+DIR=$PWD
+
+for r in $(rg -l $@); do
+  rAbs=$(realpath $r)
+  mkdir -p "$SEARCH_RES_DIR$(dirname $rAbs)"
+  ln -s "$rAbs" "$SEARCH_RES_DIR$rAbs" 
+done
+
+WORKING_DIR=$SEARCH_RES_DIR$DIR
+if [ -d $WORKING_DIR ]; then
+  ranger $WORKING_DIR
+fi

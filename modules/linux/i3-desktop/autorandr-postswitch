@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+
+sleep 1
+
+feh --recursive --randomize --bg-fill ~/.wallpapers &
+
+pkill 'compton'
+compton --config ~/.config/compton.conf &

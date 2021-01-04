@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+rg "$@" "$(git rev-parse --show-toplevel || echo .)"

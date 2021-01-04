@@ -1,0 +1,4 @@
+self: super:
+{
+  imports = [ ../../packages ];
+}

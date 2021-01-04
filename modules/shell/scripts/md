@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+FILE=${1:-README.md}
+pandoc $FILE | w3m -T text/html

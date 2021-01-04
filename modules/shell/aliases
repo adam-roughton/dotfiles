@@ -1,0 +1,14 @@
+alias ls="exa"
+alias ..="cd .."
+alias ...="cd ../.."
+alias ....="cd ../../.."
+alias .....="cd ../../../.."
+
+alias ll="exa -l --git --time-style long-iso"
+alias la="exa --all --all"
+alias lla="exa -l --git --time-style long-iso --all --all"
+alias lr="exa -l -snew -r --git --time-style long-iso"
+alias lra="exa -l -snew -r --git --time-style long-iso --all --all"
+
+alias r="ranger"
+alias t="todo.sh"
