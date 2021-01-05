@@ -18,7 +18,7 @@ let
   };
 
   invoke = targetAttr: builtins.getAttr targetAttr (systemRoot.extra {
-    inherit pkgs;
+    inherit pkgs nixos;
     config = systemRoot.config;
   });
 

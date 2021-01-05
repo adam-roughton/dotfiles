@@ -2,16 +2,6 @@
 
 let
   sources = import ../../nix/sources.nix;
-  configTxt = ''
-    avoid_warnings=1
-    kernel=u-boot-rpi3.bin
-    arm_64bit=1
-    gpu_mem=256
-    start_x=1
-    dtparam=audio=on
-    dtparam=i2c1=on
-    dtparam=i2c_arm=on
-  '';
 in
 {
   boot.loader.grub.enable = false;
@@ -24,7 +14,7 @@ in
   ];
   
   boot.initrd.availableKernelModules = [
-    "vc4" "bcm2835_dma" "i2c_bcm2835"
+    "vc4" "bcm2835_dma" "i2c_bcm2835" "bcm2835_rng"
   ];
 
 
@@ -35,24 +25,23 @@ in
     configurationLimit = 2;
   };
   
-  boot.loader.raspberryPi.firmwareConfig = configTxt;
+  boot.loader.raspberryPi.firmwareConfig = ''
+  avoid_warnings=1
+  kernel=u-boot-rpi3.bin
+  arm_64bit=1
+  cma=256M@512M
+  gpu_mem=256
+  start_x=1
+  dtparam=audio=on
+  dtparam=i2c1=on
+  dtparam=i2c_arm=on
+  '';
   hardware.enableRedistributableFirmware = true;
 
-  # Used when generating a custom SD image for initial installation
-  sdImage = {
-    populateFirmwareCommands = let
-      configTxtFile = pkgs.writeText "config.txt" configTxt;
-    in
-      ''
-      (cd ${pkgs.raspberrypifw}/share/raspberrypi/boot && cp bootcode.bin fixup*.dat start*.elf $NIX_BUILD_TOP/firmware/)
-      cp ${configTxtFile} firmware/config.txt
-      cp ${pkgs.ubootRaspberryPi3_64bit}/u-boot.bin firmware/u-boot-rpi3.bin
-    '';
-    populateRootCommands = ''
-      mkdir -p ./files/boot
-      ${config.boot.loader.generic-extlinux-compatible.populateCmd} -c ${config.system.build.toplevel} -d ./files/boot
-    '';
-  };
+  hardware.firmware = with pkgs; [
+     wireless-regdb
+     raspberrypiWirelessFirmware
+  ];
 
   # Use 1GB of additional swap memory in order to not run out of memory
   # when installing lots of things while running other things at the same time.

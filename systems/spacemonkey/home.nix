@@ -1,4 +1,4 @@
-{ user, pkgs, ... }:
+{ user, pkgs, lib, ... }:
 {
   imports = [ 
     ../../modules/shell
@@ -10,7 +10,7 @@
     ../../modules/qutebrowser
     ../../modules/apps.nix
     ../../modules/dev.nix
-  ];
+  ] ++ lib.optional (builtins.pathExists ../../private) ../../private/systems/spacemonkey/home.nix;
 
   home.packages = with pkgs; [
     (runCommand "scripts" { src = ./scripts; } ''

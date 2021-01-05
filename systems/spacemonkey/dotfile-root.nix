@@ -17,8 +17,8 @@ in
     nixpkgs.config.allowUnfree = true;
   };
   
-  extra = { config, pkgs, ... }: {
-    vm = ((pkgs.nixos config) // {
+  extra = { config, pkgs, nixos, ... }: {
+    vm = (nixos // {
       virtualisation.memorySize = "2G";
       virtualisation.cores = 2;
     }).vm;
