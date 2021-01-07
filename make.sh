@@ -65,7 +65,7 @@ case "$mode" in
     systemName="$1"
     shift
 
-    drv="$(./make.sh $systemName build)"
+    drv="$(./make.sh build $systemName)"
     sudo nix-env -p /nix/var/nix/profiles/system --set "$drv"
     NIXOS_INSTALL_BOOTLOADER=1 sudo --preserve-env=NIXOS_INSTALL_BOOTLOADER "$drv/bin/switch-to-configuration" switch
     ;;

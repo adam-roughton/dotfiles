@@ -10,9 +10,6 @@
     enable = true;
     enableSshSupport = true;
     sshKeys = [ user.gpgSshKeygrip.rpi3 ];
-    extraConfig = ''
-      pinentry-program ${pkgs.pinentry}/bin/pinentry
-    '';
   };
   
   manual.manpages.enable = true;
