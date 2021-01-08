@@ -5,6 +5,8 @@
     ../../modules/vim
     ../../modules/fonts
   ];
+
+  programs.zsh.enable = true;
   
   services.gpg-agent = {
     enable = true;
