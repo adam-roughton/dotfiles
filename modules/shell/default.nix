@@ -8,6 +8,10 @@ let
   extraAliasesStr = concatStringsSep "\n" (
     mapAttrsToList (k: v: "alias ${k}=${escapeShellArg v}") cfg.extraAliases
   );
+  profileText = ''
+    export NIX_PATH=nixpkgs=${pkgs.path}
+    source ${./profile}
+  '';
 in {
 
   imports = [ 
@@ -80,10 +84,11 @@ in {
     '';
 
     home.file.".profile" = {
-      text = ''
-        export NIX_PATH=nixpkgs=${pkgs.path}
-        source ${./profile}
-      '';
+      text = profileText;
+      executable = true;
+    };
+    home.file.".zprofile" = {
+      text = profileText;
       executable = true;
     };
 
