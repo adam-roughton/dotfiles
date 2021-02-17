@@ -37,9 +37,11 @@ in
   services.xserver.videoDrivers = [ "intel" ];
   services.xserver.libinput = {
     enable = true;
-    scrollMethod = "twofinger";
-    tapping = false;
-    naturalScrolling = true;
+    touchpad = {
+      scrollMethod = "twofinger";
+      tapping = false;
+      naturalScrolling = true;
+    };
   };
 
   services.printing = {
