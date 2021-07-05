@@ -15,7 +15,7 @@ let
 in {
 
   imports = [ 
-    ../git.nix 
+    ../git.nix
   ];
 
   options = {
@@ -56,7 +56,7 @@ in {
       
       sqlite 
 
-      awscli 
+      awscli (pkgs.callPackage ./aws-console.nix {}) 
     
       # nix
       nix-prefetch-scripts patchelf
