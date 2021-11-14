@@ -1,6 +1,6 @@
 configuration {
   modi: "window,run";
-  theme: "DarkBlue";
+  theme: "sidebar";
   timeout {
       action: "kb-cancel";
       delay:  0;

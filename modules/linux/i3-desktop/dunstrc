@@ -3,7 +3,7 @@ follow=keyboard
 alignment=center
 stack_duplicates=false
 geometry=x0+0-120
-font = Fira Code 16
+font = Hack 14
 
 [urgency_low]
 background = "#222222"
