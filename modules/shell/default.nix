@@ -44,7 +44,7 @@ in {
       
       paperkey pass-otp gnupg openssl zbar 
 
-      ascii translate-shell units cloc
+      ascii translate-shell units tokei
       graphviz todo-txt-cli 
 
       cmatrix termdown 

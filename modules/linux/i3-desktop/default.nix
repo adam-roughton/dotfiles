@@ -17,6 +17,9 @@
   xsession = {
     enable = true;
     windowManager.command = "i3";
+    profileExtra = ''
+      eval $(${pkgs.gnome3.gnome-keyring}/bin/gnome-keyring-daemon --daemonize --components=secrets)
+    '';
   };
 
   home.file.".config/i3/config".source = ./i3/config;
@@ -26,7 +29,7 @@
   home.file.".config/compton.conf".source = ./compton.conf;
   home.file.".config/kitty/kitty.conf".source = ./kitty.conf;
     
-  home.file.".config/rofi/config".source = ./rofi;
+  home.file.".config/rofi/config.rasi".source = ./rofi.rasi;
   home.file.".config/dunst/dunstrc".source = ./dunstrc;
 
   home.file.".config/autorandr/postswitch" = {

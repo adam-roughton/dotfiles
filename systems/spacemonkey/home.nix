@@ -10,6 +10,7 @@
     ../../modules/qutebrowser
     ../../modules/apps.nix
     ../../modules/dev.nix
+    ../../modules/vscode.nix
   ] ++ lib.optional (builtins.pathExists ../../private) ../../private/systems/spacemonkey/home.nix;
 
   home.packages = with pkgs; [

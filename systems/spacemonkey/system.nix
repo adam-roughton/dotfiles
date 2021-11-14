@@ -37,6 +37,7 @@ in
   services.fwupd.enable = true;
 
   services.openssh.enable = true;
+  services.gnome.gnome-keyring.enable = true;
 
   programs.wireshark.enable = true;
   
