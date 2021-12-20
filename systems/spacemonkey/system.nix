@@ -1,11 +1,18 @@
-{ pkgs, ... }:
+{ pkgs, lib, ... }:
 
 let
   sources = import ../../nix/sources.nix;
   user = import ../../user.nix;
   username = "adamr";
+  home = "/home/${username}";
 in
 {
+  imports = lib.optional (
+    builtins.pathExists ../../private/systems/spacemonkey/system.nix
+  ) (
+    args: import ../../private/systems/spacemonkey/system.nix (args // { inherit home pkgs lib; })
+  );
+  
   environment.systemPackages = with pkgs; [
     git vim qemu
   ];
@@ -42,6 +49,7 @@ in
   programs.wireshark.enable = true;
   
   boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
+  boot.loader.grub.memtest86.enable = true;
 
   nix = {
     trustedUsers = [ "root" username ];
@@ -50,7 +58,8 @@ in
     nixPath = [
       "nixpkgs=${pkgs.path}"
     ];
-    daemonNiceLevel = 19;
+    daemonCPUSchedPolicy = "idle";
+    daemonIOSchedClass = "idle";
   };
 
   virtualisation.docker = {
@@ -90,7 +99,7 @@ in
   };
 
   users.extraUsers.${username} = {
-    home = "/home/${username}";
+    home = home;
     isNormalUser = true;
     uid = 1000;
     extraGroups = [ "wheel" "networkmanager" "docker" "wireshark" ];

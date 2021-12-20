@@ -19,6 +19,7 @@
       cp $src/* $out/bin
       chmod +x $out/bin/*
     '')
+    hplip
   ];
 
   home.file.".config/mimeapps.list".text = 

@@ -15,10 +15,10 @@ case "$mode" in
     shift
 
     tmp="$(mktemp -u)"
-    nix build --no-link \
+    nix-build --no-link \
       --allow-unsafe-native-code-during-evaluation \
-      -f "$DOTFILES_DIR" \
-      system \
+      "$DOTFILES_DIR" \
+      -A system \
       --argstr systemName "$systemName" \
       -o "$tmp/result" \
       --keep-going $* >&2

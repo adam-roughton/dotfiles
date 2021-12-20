@@ -5,8 +5,15 @@ let
   user = import ../../user.nix;
   util = pkgs.callPackage ../../util.nix {};
   username = "adam";
+  home = "/home/${username}";
 in
 {
+  imports = lib.optional (
+    builtins.pathExists ../../private/systems/rpi3/system.nix
+  ) (
+    args: import ../../private/systems/rpi3/system.nix (args // { inherit home pkgs lib; })
+  );
+
   time.timeZone = "Pacific/Auckland";
 
   environment.systemPackages = with pkgs; [
