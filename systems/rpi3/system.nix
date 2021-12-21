@@ -77,7 +77,7 @@ in
     extraGroups = [ "wheel" "networkmanager" "input" "audio" "video" ];
     shell = "${pkgs.zsh}/bin/zsh";
   };
-  services.mingetty = {
+  services.getty = {
     autologinUser = "${username}";
   };
   home-manager.users."${username}" = args: import ./home.nix (args // { inherit pkgs user; });

@@ -32,7 +32,7 @@ in
         "${sources.nixpkgs}/nixos/modules/installer/scan/detected.nix"
         "${sources.nixpkgs}/nixos/modules/installer/scan/not-detected.nix"
         "${sources.nixpkgs}/nixos/modules/installer/cd-dvd/channel.nix"
-        "${sources.nixpkgs}/nixos/modules/installer/cd-dvd/sd-image.nix"
+        "${sources.nixpkgs}/nixos/modules/installer/sd-card/sd-image.nix"
         ./image.nix
       ];
     })).config.system.build.sdImage;

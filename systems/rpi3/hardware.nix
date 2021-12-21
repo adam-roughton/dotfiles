@@ -30,12 +30,11 @@ in
   kernel=u-boot-rpi3.bin
   arm_64bit=1
   enable_uart=1
-  cma=256M@512M
-  gpu_mem=256
   start_x=1
   dtparam=audio=on
   dtparam=i2c1=on
   dtparam=i2c_arm=on
+  dtoverlay=vc4-kms-v3d  
   '';
   hardware.enableRedistributableFirmware = true;
 
