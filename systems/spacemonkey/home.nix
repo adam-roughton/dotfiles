@@ -14,6 +14,7 @@
   ] ++ lib.optional (builtins.pathExists ../../private) ../../private/systems/spacemonkey/home.nix;
 
   home.packages = with pkgs; [
+    gparted
     (runCommand "scripts" { src = ./scripts; } ''
       mkdir -p $out/bin
       cp $src/* $out/bin

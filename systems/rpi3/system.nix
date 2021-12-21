@@ -1,4 +1,4 @@
-{ pkgs, ... }:
+{ pkgs, lib, ... }:
 
 let
   sources = import ../../nix/sources.nix;
@@ -58,13 +58,16 @@ in
     nixPath = [
       "nixpkgs=${pkgs.path}"
     ];
-    daemonNiceLevel = 19;
+    daemonCPUSchedPolicy = "idle";
+    daemonIOSchedClass = "idle";
   };
 
   services.earlyoom = {
     enable = true;
     freeMemThreshold = 5;
   };
+
+  programs.zsh.enable = true;
 
   users.extraUsers."${username}" = {
     home = "/home/${username}";

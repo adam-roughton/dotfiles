@@ -29,6 +29,7 @@ in
   avoid_warnings=1
   kernel=u-boot-rpi3.bin
   arm_64bit=1
+  enable_uart=1
   cma=256M@512M
   gpu_mem=256
   start_x=1

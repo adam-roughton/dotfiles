@@ -46,6 +46,7 @@ in
   services.openssh.enable = true;
   services.gnome.gnome-keyring.enable = true;
 
+  programs.zsh.enable = true;
   programs.wireshark.enable = true;
   
   boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
