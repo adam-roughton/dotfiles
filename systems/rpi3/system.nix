@@ -17,7 +17,7 @@ in
   time.timeZone = "Pacific/Auckland";
 
   environment.systemPackages = with pkgs; [
-    libraspberrypi vim
+    libraspberrypi vim 
   ];
 
   networking = {

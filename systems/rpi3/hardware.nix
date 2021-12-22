@@ -9,9 +9,9 @@ in
 
   # A bunch of boot parameters needed for optimal runtime on RPi 3b+
   boot.kernelParams = [
-    "console=ttyAMA0,115200n8" 
-    "console=tty0"
+    "console=tty0" 
   ];
+  boot.kernelPackages = pkgs.linuxPackages_latest;
   
   boot.initrd.availableKernelModules = [
     "vc4" "bcm2835_dma" "i2c_bcm2835" "bcm2835_rng"
@@ -24,16 +24,17 @@ in
     enable = true;
     configurationLimit = 2;
   };
-  
+
   boot.loader.raspberryPi.firmwareConfig = ''
   avoid_warnings=1
   kernel=u-boot-rpi3.bin
   arm_64bit=1
-  enable_uart=1
-  start_x=1
-  dtparam=audio=on
+  enable_uart=0
+  force_turbo=1
   dtparam=i2c1=on
   dtparam=i2c_arm=on
+  start_x=1
+  dtparam=audio=on
   dtoverlay=vc4-kms-v3d  
   '';
   hardware.enableRedistributableFirmware = true;
@@ -68,5 +69,10 @@ in
   hardware.pulseaudio = {
     enable = true;
     package = pkgs.pulseaudioFull;
+    support32Bit = true;
+    extraModules = [ pkgs.pulseaudio-modules-bt ];
+    extraConfig = ''
+      load-module module-switch-on-connect
+    '';
   };
 }
