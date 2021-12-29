@@ -24,5 +24,6 @@ let
 
   vm = invoke "vm";
   diskImage = invoke "diskImage";
+  firmware = invoke "firmware";
 
-in nixos // { inherit vm diskImage; }
+in nixos // { inherit vm diskImage firmware; }

@@ -36,6 +36,12 @@ in
         ./image.nix
       ];
     })).config.system.build.sdImage;
+
+    firmware = (pkgs.nixos (config // rec {
+      imports = [
+        ./firmware.nix
+      ];
+    })).config.system.build.firmware;
      
   };
 

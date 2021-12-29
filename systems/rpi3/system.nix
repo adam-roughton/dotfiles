@@ -74,7 +74,7 @@ in
     hashedPassword = util.readSecret "rpi3/hashedPassword";
     isNormalUser = true;
     uid = 1000;
-    extraGroups = [ "wheel" "networkmanager" "input" "audio" "video" ];
+    extraGroups = [ "wheel" "networkmanager" "input" "audio" "video" "bluetooth" ];
     shell = "${pkgs.zsh}/bin/zsh";
   };
   services.getty = {
