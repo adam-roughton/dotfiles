@@ -110,7 +110,7 @@ case "$mode" in
   "clean")
     sudo nix-collect-garbage --delete-older-than 7d
     nix-collect-garbage --delete-older-than 7d # clean user drv as well
-    nix optimise-store
+    nix store optimise --extra-experimental-features nix-command
     ;;
   *)
     exit 1
