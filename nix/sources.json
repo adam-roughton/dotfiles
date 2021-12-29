@@ -5,10 +5,10 @@
         "homepage": "https://docs.drone.io/cli/install/",
         "owner": "drone",
         "repo": "drone-cli",
-        "rev": "7c935d19d6d4a9dde390bea9eed0c7d68cd3d63f",
-        "sha256": "0z83x2zf1yxg9bjh1zmmdxsly92dl9ppfvlhqjhpcpvy30503kys",
+        "rev": "af5da0bad16384eb7e3d7a46b48de80c5442e8c1",
+        "sha256": "05pa05cfyxvq6yrl5sjckf6ws72j69ik3x6wmynngby6xyfrz8w3",
         "type": "tarball",
-        "url": "https://github.com/drone/drone-cli/archive/7c935d19d6d4a9dde390bea9eed0c7d68cd3d63f.tar.gz",
+        "url": "https://github.com/drone/drone-cli/archive/af5da0bad16384eb7e3d7a46b48de80c5442e8c1.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz",
         "version": "v1.2.0"
     },
@@ -18,22 +18,10 @@
         "homepage": "",
         "owner": "rycee",
         "repo": "home-manager",
-        "rev": "df931a59a5864d6ff0c5d83598135816f8593647",
-        "sha256": "03qx6b2hi5hmxzz8kr9ymbf7v2gfd0m56ysydq3mvxpd38mhl870",
+        "rev": "c9dbe2847e7bbcc44d23d463f1a536bd0ac4f887",
+        "sha256": "0i0h7zy6kzk5n3cv02brw75gwz2pfi9hrpxrgcii9bgz5d8gkpnj",
         "type": "tarball",
-        "url": "https://github.com/rycee/home-manager/archive/df931a59a5864d6ff0c5d83598135816f8593647.tar.gz",
-        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
-    },
-    "lab-env": {
-        "branch": "dev/minor-fixes",
-        "description": "Repeatable environments for data science",
-        "homepage": "",
-        "owner": "adam-roughton",
-        "repo": "lab-env",
-        "rev": "f30be57ee6ee7109559157f5adfb1bd4b8d17ae1",
-        "sha256": "0cgh0rd5x9vkzwcxj91mfkdy27xhfc8yl9ir6xysmy77aic5sffl",
-        "type": "tarball",
-        "url": "https://github.com/adam-roughton/lab-env/archive/f30be57ee6ee7109559157f5adfb1bd4b8d17ae1.tar.gz",
+        "url": "https://github.com/rycee/home-manager/archive/c9dbe2847e7bbcc44d23d463f1a536bd0ac4f887.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "niv": {
@@ -54,10 +42,10 @@
         "homepage": "",
         "owner": "nixos",
         "repo": "nixos-hardware",
-        "rev": "08cda8e3a5a4e685af525e5a589dfeb74267d505",
-        "sha256": "0bf3mbss7c3lyf5h8g1vwjbs0cg4h0c8ixbaz1kv24ahyy8n61y3",
+        "rev": "46df95ca81e7e4cf3458cdb4b7d1714b5fce9da5",
+        "sha256": "0rxff15a2z9hcs4xkaymdwgqlkjxvyyylcg66qhi23lia995f2ga",
         "type": "tarball",
-        "url": "https://github.com/nixos/nixos-hardware/archive/08cda8e3a5a4e685af525e5a589dfeb74267d505.tar.gz",
+        "url": "https://github.com/nixos/nixos-hardware/archive/46df95ca81e7e4cf3458cdb4b7d1714b5fce9da5.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "nixpkgs": {
@@ -66,10 +54,10 @@
         "homepage": "",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "98747f27ecfee70c8c97b195cbb94df80a074dda",
-        "sha256": "04ss525ns5qqlggrdhvc6y4hqmshylda9yd0y99ddliyn15wmf27",
+        "rev": "5c37ad87222cfc1ec36d6cd1364514a9efc2f7f2",
+        "sha256": "1r74afnalgcbpv7b9sbdfbnx1kfj0kp1yfa60bbbv27n36vqdhbb",
         "type": "tarball",
-        "url": "https://github.com/nixos/nixpkgs/archive/98747f27ecfee70c8c97b195cbb94df80a074dda.tar.gz",
+        "url": "https://github.com/nixos/nixpkgs/archive/5c37ad87222cfc1ec36d6cd1364514a9efc2f7f2.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     }
 }
