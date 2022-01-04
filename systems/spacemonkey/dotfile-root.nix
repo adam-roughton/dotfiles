@@ -4,7 +4,7 @@ in
 {
   system = "x86_64-linux";
   
-  config = {
+  configuration = {
 
     imports = [
       ./system.nix
@@ -17,8 +17,8 @@ in
     nixpkgs.config.allowUnfree = true;
   };
   
-  extra = { config, pkgs, nixos, ... }: {
-    vm = (nixos // {
+  extra = { nixos, ... }: rec {
+    vm = (nixos { inherit system configuration; } // {
       virtualisation.memorySize = "2G";
       virtualisation.cores = 2;
     }).vm;
