@@ -81,4 +81,13 @@ in
     autologinUser = "${username}";
   };
   home-manager.users."${username}" = args: import ./home.nix (args // { inherit pkgs user; });
+
+  security.pam.loginLimits = [
+    { domain = "@audio"; item = "memlock"; type = "-"; value = "unlimited"; }
+    { domain = "@audio"; item = "rtprio"; type = "-"; value = "99"; }
+    { domain = "@audio"; item = "nofile"; type = "soft"; value = "99999"; }
+    { domain = "@audio"; item = "nofile"; type = "hard"; value = "99999"; }
+    { domain = "@pulse-rt"; item = "rtprio"; type = "-"; value = "99"; }
+    { domain = "@pulse-rt"; item = "nice"; type = "-"; value = "-20"; }
+  ];
 }
