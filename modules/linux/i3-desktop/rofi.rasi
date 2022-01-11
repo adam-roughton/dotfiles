@@ -1,8 +1,8 @@
 configuration {
   modi: "window,run";
-  theme: "sidebar";
   timeout {
       action: "kb-cancel";
       delay:  0;
   }
 }
+@theme "sidebar"

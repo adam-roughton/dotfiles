@@ -14,7 +14,7 @@ in
   );
   
   environment.systemPackages = with pkgs; [
-    git vim qemu
+    git vim qemu memtest86plus
   ];
 
   time.timeZone = "Pacific/Auckland";

@@ -1,7 +1,7 @@
 let
   sources = import ../../nix/sources.nix;
 in
-{
+rec {
   system = "x86_64-linux";
   
   configuration = {
@@ -17,7 +17,7 @@ in
     nixpkgs.config.allowUnfree = true;
   };
   
-  extra = { nixos, ... }: rec {
+  extra = { nixos, ... }: {
     vm = (nixos { inherit system configuration; } // {
       virtualisation.memorySize = "2G";
       virtualisation.cores = 2;
