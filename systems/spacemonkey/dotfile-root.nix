@@ -15,6 +15,10 @@ rec {
 
     nixpkgs.config.allowBroken = true;
     nixpkgs.config.allowUnfree = true;
+    
+    nixpkgs.overlays = [
+      (import ./overlay.nix)
+    ];
   };
   
   extra = { nixos, ... }: {

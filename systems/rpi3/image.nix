@@ -5,7 +5,6 @@
   ];
   sdImage = with config; {
     populateFirmwareCommands = ''
-      mkdir firmware
       cp ${system.build.firmware}/* firmware
     '';
     populateRootCommands = ''

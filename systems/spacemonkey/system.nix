@@ -14,8 +14,9 @@ in
   );
   
   environment.systemPackages = with pkgs; [
-    git vim qemu memtest86plus
+    git vim qemu 
   ];
+  boot.loader.systemd-boot.memtest86.enable = true;
 
   time.timeZone = "Pacific/Auckland";
 
@@ -50,12 +51,13 @@ in
   programs.wireshark.enable = true;
   
   boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
-  boot.loader.grub.memtest86.enable = true;
 
   nix = {
-    trustedUsers = [ "root" username ];
-    autoOptimiseStore = true;
-    maxJobs = 2;
+    settings = {
+      trusted-users = [ "root" username ];
+      auto-optimise-store = true;
+      max-jobs = 2;
+    };
     nixPath = [
       "nixpkgs=${pkgs.path}"
     ];
