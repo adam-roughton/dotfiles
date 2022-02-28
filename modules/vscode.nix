@@ -43,7 +43,7 @@
         "vim.useSystemClipboard" = true;
         "python.formatting.provider" = "black";
         "python.analysis.typeCheckingMode" = "basic";
-        "python.languageServer" = "None";
+        "python.languageServer" = "pylance";
         "git.confirmSync" = false;
       };
       keybindings = [
