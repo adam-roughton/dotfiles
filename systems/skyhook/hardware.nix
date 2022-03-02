@@ -1,4 +1,4 @@
-{ config, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 
 let
 sources = import ../../nix/sources.nix;
@@ -12,11 +12,15 @@ in
     "${sources.nixos-hardware}/common/pc/laptop/acpi_call.nix"
   ];
   
-  hardware.nvidia.modesetting.enable = true;
+  hardware.nvidia.modesetting.enable = false;
+  hardware.nvidia.powerManagement.enable = true;
+  hardware.nvidia.powerManagement.finegrained = true;
   hardware.opengl.driSupport32Bit = true;
   hardware.opengl.enable = true;
 
   hardware.nvidia.prime = {
+    offload.enable = true;
+
     # Bus ID of the Intel GPU.
     intelBusId = lib.mkDefault "PCI:0:2:0";
     # Bus ID of the NVIDIA GPU.
@@ -35,7 +39,7 @@ in
     "acpi_backlight=native"
   ];
   boot.blacklistedKernelModules = [
-    "nvidia"
+    "nouveau"
   ];
 
   services.tlp.settings = {

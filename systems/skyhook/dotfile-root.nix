@@ -10,6 +10,7 @@ rec {
       ./system.nix
       ./hardware.nix
       "${sources.home-manager}/nixos"
+      /etc/nixos/hardware-configuration.nix
     ];
 
     nixpkgs.config.allowBroken = true;
@@ -25,17 +26,5 @@ rec {
       virtualisation.memorySize = "2G";
       virtualisation.cores = 2;
     }).vm;
-    
-    diskImage = (nixos {
-      inherit system;
-      configuration = (configuration // {
-        imports = [
-          "${sources.nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-base.nix"
-          "${sources.nixpkgs}/nixos/modules/installer/scan/detected.nix"
-          "${sources.nixpkgs}/nixos/modules/installer/scan/not-detected.nix"
-          "${sources.nixpkgs}/nixos/modules/installer/cd-dvd/channel.nix"
-        ];
-      });
-    }).config.system.build.isoImage;
   };
 }

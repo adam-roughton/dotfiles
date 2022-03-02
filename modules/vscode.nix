@@ -11,6 +11,7 @@
         github.copilot
         ms-toolsai.jupyter
         bungcip.better-toml
+        scala-lang.scala
       ] ++ vscode-utils.extensionsFromVscodeMarketplace [
         {
           name = "vscode-python-test-adapter";
