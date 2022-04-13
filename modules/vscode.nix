@@ -12,6 +12,7 @@
         ms-toolsai.jupyter
         bungcip.better-toml
         scala-lang.scala
+        golang.go 
       ] ++ vscode-utils.extensionsFromVscodeMarketplace [
         {
           name = "vscode-python-test-adapter";
@@ -32,7 +33,7 @@
           sha256 = "sha256-nli4WJ96lL3JssNuwLCsthvphI7saFT2ktWQ46VNooc=";
         } 
       ];
-      immutableExtensionsDir = true;
+      mutableExtensionsDir = false;
       userSettings = {
         "jupyter.askForKernelRestart" = false;
         "editor.formatOnSave" = true;
@@ -44,8 +45,9 @@
         "vim.useSystemClipboard" = true;
         "python.formatting.provider" = "black";
         "python.analysis.typeCheckingMode" = "basic";
-        "python.languageServer" = "pylance";
+        "python.languageServer" = "Pylance";
         "git.confirmSync" = false;
+        "editor.inlineSuggest.enabled" = true;
       };
       keybindings = [
         { key = "ctrl+shift+t"; command = "testing.viewAsTree"; }

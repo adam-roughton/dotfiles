@@ -3,7 +3,7 @@
   config = {
     home.packages = with pkgs; [
       spotify slack vlc libreoffice
-      sxiv qiv obsidian
+      sxiv qiv
       google-chrome zoom-us
     ];
   };

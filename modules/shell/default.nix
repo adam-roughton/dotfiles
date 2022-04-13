@@ -42,7 +42,7 @@ in {
   
       watch pv moreutils multitail miller jq direnv dos2unix up
       
-      paperkey pass-otp gnupg openssl zbar 
+      paperkey (pass.withExtensions(ext: [ext.pass-otp])) gnupg openssl zbar 
 
       ascii translate-shell units tokei
       graphviz todo-txt-cli 
@@ -50,7 +50,7 @@ in {
       cmatrix termdown 
       
       dnsutils curl wget mtr nmap w3m httpie
-      rsync docker_compose 
+      rsync docker-compose 
 
       haskellPackages.pandoc 
       
