@@ -26,8 +26,9 @@ in
     networkmanager.enable = true;
     extraHosts = ''
       127.0.0.1 spacemonkey
-      10.255.192.164 rpi3
-      10.255.192.112 mac
+      192.168.15.105 rpi3
+      192.168.15.175 mac
+      192.168.15.16 skyhook
     '';
     firewall = {
       enable = true;

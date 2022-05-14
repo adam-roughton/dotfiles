@@ -1,4 +1,4 @@
-{ pkgs, lib, ... }:
+{ pkgs, lib, config, ... }:
 
 let
   sources = import ../../nix/sources.nix;
@@ -26,15 +26,19 @@ in
     networkmanager.enable = true;
     extraHosts = ''
       127.0.0.1 skyhook
-      10.255.192.193 spacemonkey
-      10.255.192.164 rpi3
-      10.255.192.112 mac
+      192.168.15.105 rpi3
+      192.168.15.175 mac
+      192.168.15.37 spacemonkey
     '';
     firewall = {
       enable = true;
+      trustedInterfaces = [ "tailscale0" ];
+      allowedUDPPorts = [ config.services.tailscale.port ];
       allowedTCPPorts = [ 22 ];
     };
   };
+  services.tailscale.enable = true;
+  services.resolved.enable = true;
   
   boot.kernel.sysctl = {
     "vm.swappiness" = 0;
