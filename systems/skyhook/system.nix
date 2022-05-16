@@ -32,6 +32,7 @@ in
     '';
     firewall = {
       enable = true;
+      checkReversePath = "loose";
       trustedInterfaces = [ "tailscale0" ];
       allowedUDPPorts = [ config.services.tailscale.port ];
       allowedTCPPorts = [ 22 ];
@@ -117,6 +118,6 @@ in
 
   services.cron.enable = true;
 
-  system.stateVersion = "21.05";
+  system.stateVersion = "22.05";
 
 }
