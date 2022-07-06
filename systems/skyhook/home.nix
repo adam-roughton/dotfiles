@@ -10,7 +10,7 @@
     ../../modules/qutebrowser
     ../../modules/apps.nix
     ../../modules/dev.nix
-    ../../modules/vscode.nix
+    ../../modules/vscode
   ] ++ lib.optional (builtins.pathExists ../../private) ../../private/systems/skyhook/home.nix;
 
   home.packages = with pkgs; [

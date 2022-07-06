@@ -1,11 +1,12 @@
 { pkgs, ... }:
 let
+  extensions = import ./extensions.nix;
   jupyter = with pkgs; vscode-utils.buildVscodeMarketplaceExtension {
     mktplcRef = {
       name = "jupyter";
       publisher = "ms-toolsai";
-      version = "2022.4.1021342353";
-      sha256 = "EKIAWJXKddCobw8hLGUrKzhqNi+oOuBdZ5SSxxWD5Pk=";
+      version = "2022.5.1001601848";
+      sha256 = "oFuNn+aB20OntRZHmWK5eEpnsN61QVFnD/4b0C1Wnyw=";
     };
 
     nativeBuildInputs = [
@@ -44,36 +45,7 @@ in
     programs.vscode = with pkgs; {
       enable = true;
       package = vscode;
-      extensions = with vscode-extensions; [
-        vscodevim.vim
-        ms-python.python
-        ms-python.vscode-pylance
-        github.copilot
-        jupyter
-        #ms-toolsai.jupyter
-        bungcip.better-toml
-        scala-lang.scala
-        golang.go 
-      ] ++ vscode-utils.extensionsFromVscodeMarketplace [
-        {
-          name = "vscode-python-test-adapter";
-          publisher = "LittleFoxTeam";
-          version = "0.7.0";
-          sha256 = "sha256-kgz767dp+//4Lx59JmDC9aKq89AVpfgEViQ1fq19hMs=";
-        } 
-        {
-          name = "vscode-test-explorer";
-          publisher = "hbenl";
-          version = "2.21.1";
-          sha256 = "sha256-fHyePd8fYPt7zPHBGiVmd8fRx+IM3/cSBCyiI/C0VAg=";
-        } 
-        {
-          name = "test-adapter-converter";
-          publisher = "ms-vscode";
-          version = "0.1.5";
-          sha256 = "sha256-nli4WJ96lL3JssNuwLCsthvphI7saFT2ktWQ46VNooc=";
-        } 
-      ];
+      extensions = [ jupyter ] ++ vscode-utils.extensionsFromVscodeMarketplace extensions.extensions;
       mutableExtensionsDir = true;
       userSettings = {
         "jupyter.askForKernelRestart" = false;
@@ -89,7 +61,11 @@ in
         "python.languageServer" = "Pylance";
         "git.confirmSync" = false;
         "editor.inlineSuggest.enabled" = true;
-        "jupyter.logging.level"= "info";
+        "jupyter.logging.level" = "info";
+        "jupyter.widgetScriptSources" = [
+          "jsdelivr.com"
+          "unpkg.com"
+        ];
       };
       keybindings = [
         { key = "ctrl+shift+t"; command = "testing.viewAsTree"; }
