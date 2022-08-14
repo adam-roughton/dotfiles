@@ -84,6 +84,8 @@
   manual.manpages.enable = true;
   news.display = "silent";
 
+  home.stateVersion = "22.05";
+
   # Force home-manager to use pinned nixpkgs
   _module.args.pkgs = pkgs.lib.mkForce pkgs;
 }
