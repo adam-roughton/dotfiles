@@ -30,7 +30,7 @@
       kubetail
 
       mysql
-      postgresql_10
+      postgresql
       jsonnet
     ];
   };
