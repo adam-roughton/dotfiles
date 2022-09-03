@@ -19,5 +19,7 @@
 
   # Force home-manager to use pinned nixpkgs
   _module.args.pkgs = pkgs.lib.mkForce pkgs;
+  
+  home.stateVersion = "22.05";
 
 }
