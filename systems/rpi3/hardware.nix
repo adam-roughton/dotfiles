@@ -5,7 +5,6 @@ let
 in
 {
   boot.loader.grub.enable = false;
-  boot.loader.generic-extlinux-compatible.enable = true;
 
   # A bunch of boot parameters needed for optimal runtime on RPi 3b+
   boot.kernelParams = [

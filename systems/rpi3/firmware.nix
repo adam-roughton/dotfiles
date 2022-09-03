@@ -11,6 +11,6 @@ in {
 
   system.build.boot = pkgs.runCommand "boot" {} ''
     mkdir $out
-    ${config.boot.loader.generic-extlinux-compatible.populateCmd} -c ${config.system.build.toplevel} -d $out
+    ${config.system.build.installBootLoader} ${config.system.build.toplevel} -d $out
   '';
 }

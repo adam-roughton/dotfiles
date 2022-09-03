@@ -52,9 +52,11 @@ in
   services.openssh.enable = true;
 
   nix = {
-    trustedUsers = [ "root" username ];
-    autoOptimiseStore = true;
-    maxJobs = 2;
+    settings = {
+      trusted-users = [ "root" username ];
+      max-jobs = 2;  
+      auto-optimise-store = true;
+    };
     nixPath = [
       "nixpkgs=${pkgs.path}"
     ];
