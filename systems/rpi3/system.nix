@@ -30,7 +30,7 @@ in
     dhcpcd.enable = true;
     extraHosts = ''
       127.0.0.1 rpi3
-      10.255.192.193 spacemonkey
+      192.168.15.16 skyhook
     '';
     firewall = {
       enable = true;
