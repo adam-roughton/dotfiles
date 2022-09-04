@@ -10,7 +10,7 @@
     ../../modules/qutebrowser
     ../../modules/apps.nix
     ../../modules/dev.nix
-    ../../modules/vscode.nix
+    ../../modules/vscode
   ] ++ lib.optional (builtins.pathExists ../../private) ../../private/systems/spacemonkey/home.nix;
 
   home.packages = with pkgs; [
@@ -86,4 +86,6 @@
 
   # Force home-manager to use pinned nixpkgs
   _module.args.pkgs = pkgs.lib.mkForce pkgs;
+  
+  home.stateVersion = "22.05";
 }
