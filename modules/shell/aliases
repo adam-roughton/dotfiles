@@ -12,3 +12,6 @@ alias lra="exa -l -snew -r --git --time-style long-iso --all --all"
 
 alias r="ranger"
 alias t="todo.sh"
+alias tf="todo.sh list"
+tt() { todo.sh list +$(date -Idate) ; }
+ta() { todo.sh add +$(date -Idate) $1 ; }

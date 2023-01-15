@@ -6,10 +6,8 @@ in
 {
   imports = [
     "${sources.nixos-hardware}/lenovo/thinkpad"
-    "${sources.nixos-hardware}/common/cpu/intel"
-    "${sources.nixos-hardware}/common/gpu/nvidia.nix"
-    "${sources.nixos-hardware}/common/pc/laptop/ssd"
-    "${sources.nixos-hardware}/common/pc/laptop/acpi_call.nix"
+    "${sources.nixos-hardware}/lenovo/thinkpad/p1"
+    "${sources.nixos-hardware}/common/gpu/nvidia/prime.nix"
   ];
   
   hardware.nvidia.modesetting.enable = false;

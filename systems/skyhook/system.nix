@@ -62,7 +62,7 @@ in
     settings = {
       trusted-users = [ "root" username ];
       auto-optimise-store = true;
-      max-jobs = 2;
+      max-jobs = 4;
     };
     nixPath = [
       "nixpkgs=${pkgs.path}"

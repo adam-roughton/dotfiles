@@ -23,7 +23,7 @@
       python3Packages.virtualenv pipenv python3Packages.black
 
       # rust
-      rustc cargo carnix rustfmt
+      rustc cargo rustfmt
 
       # K8s
       aws-iam-authenticator

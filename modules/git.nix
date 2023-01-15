@@ -17,6 +17,7 @@ in
         key = user.gpgKey;
         gpgPath = "gpg";
       };
+      lfs.enable = true;
       ignores = [
         "*.iml"
         "*.sw*"
