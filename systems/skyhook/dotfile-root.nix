@@ -15,6 +15,7 @@ rec {
 
     nixpkgs.config.allowBroken = true;
     nixpkgs.config.allowUnfree = true;
+    nixpkgs.config.cudaSupport = true;
     
     nixpkgs.overlays = [
       (import ./overlay.nix)

@@ -5,7 +5,7 @@ in
 {
   config = {
     home.packages = with pkgs; [ 
-      gitAndTools.hub tig gist 
+      gitAndTools.hub tig gist git-crypt
     ];
 
     programs.git = {

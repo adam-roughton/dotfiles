@@ -5,8 +5,8 @@ let
     mktplcRef = {
       name = "jupyter";
       publisher = "ms-toolsai";
-      version = "2022.5.1001601848";
-      sha256 = "oFuNn+aB20OntRZHmWK5eEpnsN61QVFnD/4b0C1Wnyw=";
+      version = "2022.11.1003412109";
+      sha256 = "1zm8jk5v3hn8vz6675i136jbz4czwmij80j003w79yl36fzissyx";
     };
 
     nativeBuildInputs = [

@@ -121,6 +121,12 @@ mode "resize" {
 
 bindsym $mod+r mode "resize"
 
+# Make the currently focused window a scratchpad
+bindsym $mod+Shift+minus move scratchpad
+
+# Show the first scratchpad window
+bindsym $mod+minus scratchpad show
+
 focus_follows_mouse no
 
 bar {

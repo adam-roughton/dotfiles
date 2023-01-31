@@ -1,21 +1,39 @@
 { extensions = [
   {
-    name = "better-toml";
-    publisher = "bungcip";
-    version = "0.3.2";
-    sha256 = "08lhzhrn6p0xwi0hcyp6lj9bvpfj87vr99klzsiy8ji7621dzql3";
+    name = "Nix";
+    publisher = "bbenoist";
+    version = "1.0.1";
+    sha256 = "0zd0n9f5z1f0ckzfjr38xw2zzmcxg1gjrava7yahg5cvdcw6l35b";
   }
   {
-    name = "copilot";
-    publisher = "GitHub";
-    version = "1.30.6165";
-    sha256 = "2Y4zQphaPzTjvOJ4EluaVNFksJ2/PL7UE5ceAW7da6Q=";
+    name = "masontidy";
+    publisher = "ericcirone";
+    version = "1.0.0";
+    sha256 = "0gck1pv1kn74kzfbqyxn5ycqw6625d85xmp6jyajiknwg620l6gv";
   }
   {
     name = "go";
     publisher = "golang";
-    version = "0.33.1";
-    sha256 = "0dsjxs04dchw1dbzf45ryhxsb5xhalqwy40xw6cngxkp69lhf91g";
+    version = "0.37.1";
+    sha256 = "0z81mi7x3w1pd4n7prnzm3dy05s2fx8crkc7il60k0qw95aqrs64";
+  }
+  {
+    name = "vscode-graphql";
+    publisher = "GraphQL";
+    version = "0.8.5";
+    sha256 = "1m24k24ksn93dad5sqp9nr449wn2s4hryw1x970j7md6wggh6qw6";
+  }
+  {
+    name = "vscode-graphql-syntax";
+    publisher = "GraphQL";
+    version = "1.0.6";
+    sha256 = "0p4rwphh3kjawc72rvpy0k7753gbpp4mj8vvkw17pg118xf009rr";
+  }
+  {
+    name = "terraform";
+    publisher = "hashicorp";
+    version = "2.25.2";
+    sha256 = "13chmw23fmgxv5z5qcxhxg8gf1b94g3pi3lp25l0chc8i3x6df3x";
   }
   {
     name = "vscode-test-explorer";
@@ -32,14 +50,14 @@
   {
     name = "python";
     publisher = "ms-python";
-    version = "2022.9.11611009";
-    sha256 = "0a75142msjn0pfgqng8rlr4szhinl7aac3p9g9jrns4h8mpv30mc";
+    version = "2022.20.1";
+    sha256 = "1kmg8gb21l81ja1xx2zjg3h8kr333zds1ga6qd119cszvs2qi4sh";
   }
   {
     name = "vscode-pylance";
     publisher = "ms-python";
-    version = "2022.6.11";
-    sha256 = "0c785ff99hgzb83h3zab1avmnlx09l293n60g3qkmxsph7qyxlbw";
+    version = "2023.1.31";
+    sha256 = "1rapd0s5j9rnqfp5f9i0s07ycwz3p3vc0lhrwfakpy0zz9k8wg2l";
   }
   {
     name = "test-adapter-converter";
@@ -50,14 +68,20 @@
   {
     name = "scala";
     publisher = "scala-lang";
-    version = "0.5.5";
-    sha256 = "1gqgamm97sq09za8iyb06jf7hpqa2mlkycbx6zpqwvlwd3a92qr1";
+    version = "0.5.6";
+    sha256 = "004zc3id5jk8hk6q27g4p36prvnlqdsgda0gd6xvs4gamhywhb3s";
+  }
+  {
+    name = "even-better-toml";
+    publisher = "tamasfe";
+    version = "0.19.0";
+    sha256 = "0xfnprgbafy7sfdqwdw92lr8k3h3fbylvhq1swgv31akndm9191j";
   }
   {
     name = "vim";
     publisher = "vscodevim";
-    version = "1.22.2";
-    sha256 = "1d85dwlnfgn7d32ivza0bv1zf9bh36fx7gbi586dligkw202blkn";
+    version = "1.24.3";
+    sha256 = "02alixryryak80lmn4mxxf43izci5fk3pf3pcwy52nbd3d2fiwz1";
   }
 ];
 }
