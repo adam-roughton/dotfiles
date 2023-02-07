@@ -25,6 +25,16 @@ in
     nvidiaBusId = lib.mkDefault "PCI:1:0:0";
   };
 
+  # Add boot option for using nvidia to power an external display
+  specialisation = {
+    external-display.configuration = {
+      system.nixos.tags = [ "external-display" ];
+      hardware.nvidia.prime.offload.enable = lib.mkForce false;
+      hardware.nvidia.powerManagement.enable = lib.mkForce false;
+      hardware.nvidia.powerManagement.finegrained = lib.mkForce false;
+    };
+  };
+
   services.fprintd.enable = true;
   
   boot.loader.systemd-boot.enable = true;

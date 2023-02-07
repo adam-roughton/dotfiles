@@ -66,6 +66,11 @@ in
           "jsdelivr.com"
           "unpkg.com"
         ];
+        "evenBetterToml.formatter.allowedBlankLines" = 2;
+        "evenBetterToml.formatter.columnWidth" = 50;
+        "evenBetterToml.formatter.indentTables" = true;
+        "evenBetterToml.formatter.reorderArrays" = true;
+        "evenBetterToml.formatter.reorderKeys" = true;
       };
       keybindings = [
         { key = "ctrl+shift+t"; command = "testing.viewAsTree"; }

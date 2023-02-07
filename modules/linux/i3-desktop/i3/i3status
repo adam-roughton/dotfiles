@@ -14,7 +14,7 @@ general {
 order += "disk /"
 order += "wireless _first_"
 order += "ethernet _first_"
-order += "battery all"
+order += "battery 0"
 order += "load"
 order += "tztime local"
 
@@ -29,7 +29,7 @@ ethernet _first_ {
         format_down = "E: down"
 }
 
-battery all {
+battery 0 {
         format = "%status %percentage %remaining"
 }
 
