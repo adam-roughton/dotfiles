@@ -86,6 +86,7 @@ in
   services.xserver = {
     enable = true;
     autorun = true;
+    videoDrivers = ["nvidia"];
     desktopManager.xterm.enable = true;
     displayManager = {
       lightdm = {

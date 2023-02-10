@@ -10,12 +10,13 @@ in
     "${sources.nixos-hardware}/common/gpu/nvidia/prime.nix"
   ];
   
-  hardware.nvidia.modesetting.enable = false;
+  hardware.nvidia.modesetting.enable = true;
   hardware.nvidia.powerManagement.enable = true;
   hardware.nvidia.powerManagement.finegrained = true;
   hardware.opengl.driSupport32Bit = true;
   hardware.opengl.enable = true;
 
+  hardware.nvidia.package = config.boot.kernelPackages.nvidiaPackages.latest;
   hardware.nvidia.prime = {
     offload.enable = true;
 
