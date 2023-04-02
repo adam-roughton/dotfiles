@@ -19,6 +19,7 @@ bindsym $mod+d exec rofi -show run
 bindsym $mod+p exec rofi-pass
 bindsym $mod+t exec rofi -show window
 bindsym $mod+s exec sh -c 'q=$(rofi -dmenu -p "search$" -l 0) && qutebrowser -R "https://google.com/search?q=$q"'
+bindsym $mod+c exec sh -c 'q=$(rofi -dmenu -p "bing$" -l 0) && microsoft-edge "https://www.bing.com/search?q=$q&showconv=1&FORM=hpcodx"'
 
 bindsym $mod+Shift+Control+h move workspace to output left
 bindsym $mod+Shift+Control+j move workspace to output down

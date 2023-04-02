@@ -48,29 +48,39 @@ in
       extensions = [ jupyter ] ++ vscode-utils.extensionsFromVscodeMarketplace extensions.extensions;
       mutableExtensionsDir = true;
       userSettings = {
-        "jupyter.askForKernelRestart" = false;
-        "editor.formatOnSave" = true;
-        "python.formatting.autopep8Args" = [
-            "--max-line-length=120"
-        ];
-        "editor.minimap.enabled" = false;
-        "git.autofetch" = true;
-        "vim.useSystemClipboard" = true;
-        "python.formatting.provider" = "black";
-        "python.analysis.typeCheckingMode" = "basic";
-        "python.languageServer" = "Pylance";
-        "git.confirmSync" = false;
-        "editor.inlineSuggest.enabled" = true;
-        "jupyter.logging.level" = "info";
-        "jupyter.widgetScriptSources" = [
+        "[python]"= {
+          "editor.formatOnType"= true;
+        };
+        "editor.formatOnSave"= true;
+        "editor.inlineSuggest.enabled"= true;
+        "editor.minimap.enabled"= false;
+        "evenBetterToml.formatter.allowedBlankLines"= 2;
+        "evenBetterToml.formatter.columnWidth"= 50;
+        "evenBetterToml.formatter.indentTables"= true;
+        "evenBetterToml.formatter.reorderArrays"= true;
+        "evenBetterToml.formatter.reorderKeys"= true;
+        "git.autofetch"= true;
+        "git.confirmSync"= false;
+        "git.openRepositoryInParentFolders"= "always";
+        "jupyter.askForKernelRestart"= false;
+        "jupyter.logging.level"= "info";
+        "jupyter.widgetScriptSources"= [
           "jsdelivr.com"
           "unpkg.com"
         ];
-        "evenBetterToml.formatter.allowedBlankLines" = 2;
-        "evenBetterToml.formatter.columnWidth" = 50;
-        "evenBetterToml.formatter.indentTables" = true;
-        "evenBetterToml.formatter.reorderArrays" = true;
-        "evenBetterToml.formatter.reorderKeys" = true;
+        "python.analysis.typeCheckingMode"= "basic";
+        "python.formatting.autopep8Args" = [
+          "--max-line-length=120"
+        ];
+        "python.formatting.provider"= "black";
+        "python.languageServer"= "Pylance";
+        "vim.useSystemClipboard"= true;
+        "github.copilot.enable"= {
+          "*" = true;
+          "yaml" = true;
+          "plaintext" = false;
+          "markdown" = false;
+        };
       };
       keybindings = [
         { key = "ctrl+shift+t"; command = "testing.viewAsTree"; }

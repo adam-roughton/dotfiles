@@ -43,6 +43,7 @@ in
         difftool.prompt = false;
         merge.tool = "vimdiff";
         mergetool.prompt = false;
+        init.defaultBranch = "main";
       };
     };
   };

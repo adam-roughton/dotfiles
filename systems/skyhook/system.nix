@@ -29,6 +29,9 @@ in
       192.168.15.105 rpi3
       192.168.15.175 mac
       192.168.15.37 spacemonkey
+      127.0.0.1  nzherald.co.nz
+      127.0.0.1  facebook.com
+      127.0.0.1  stuff.co.nz
     '';
     firewall = {
       enable = true;
