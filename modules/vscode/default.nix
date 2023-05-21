@@ -49,7 +49,8 @@ in
       mutableExtensionsDir = true;
       userSettings = {
         "[python]"= {
-          "editor.formatOnType"= true;
+          "editor.formatOnType" = true;
+          "editor.defaultFormatter" = "ms-python.black-formatter";
         };
         "editor.formatOnSave"= true;
         "editor.inlineSuggest.enabled"= true;
@@ -71,6 +72,10 @@ in
         "python.analysis.typeCheckingMode"= "basic";
         "python.formatting.autopep8Args" = [
           "--max-line-length=120"
+        ];
+        "python.formatting.blackArgs" = [
+          "--line-length"
+          "120"
         ];
         "python.formatting.provider"= "black";
         "python.languageServer"= "Pylance";

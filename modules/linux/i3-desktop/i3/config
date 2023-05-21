@@ -10,7 +10,7 @@ for_window [class="pinentry"] stick enable
 
 floating_maximum_size 800 x 400
 
-bindsym $mod+Return exec kitty
+bindsym $mod+Return exec --no-startup-id cd "`xcwd`" && kitty
 bindsym $mod+BackSpace exec xautolock -locknow
 
 bindsym $mod+Shift+q kill
