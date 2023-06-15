@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-todo.sh list | while read -r line; do
+todo.sh -p -P list | while read -r line; do
    todo_id="$(echo $line | cut -d' ' -f1)"
+   if [[ "$todo_id" == "--" ]]; then
+     break
+   fi
    todo_label="$(echo $line | cut -d' ' -f2-)"
    todo_new_label=$(echo $todo_label | sed "s/\+[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/+$(date -Idate)/g")
-   todo.sh replace "$todo_id" "$todo_new_label"
+   todo.sh replace "${todo_id}" "${todo_new_label}"
 done

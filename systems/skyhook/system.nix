@@ -49,8 +49,8 @@ in
     "fs.inotify.max_user_watches" = 2048000;
   };
   boot.kernelPackages = pkgs.linuxPackages_latest;
-
-  boot.cleanTmpDir = true;
+  
+  boot.tmp.cleanOnBoot = true;
   services.fwupd.enable = true;
 
   services.openssh.enable = true;
