@@ -2,7 +2,7 @@ import re
 from urllib.parse import urljoin
 
 from qutebrowser.api import interceptor, message
-from PyQt5.QtCore import QUrl
+from PyQt6.QtCore import QUrl
 
 EMR_URL_REGEX = re.compile(
     r"ip-(\d+)-(\d+)-(\d+)-(\d+)(?:[^:/]+)?"
