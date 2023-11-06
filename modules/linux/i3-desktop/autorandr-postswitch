@@ -4,5 +4,5 @@ sleep 1
 
 feh --recursive --randomize --bg-fill ~/.wallpapers &
 
-pkill 'compton'
-compton --config ~/.config/compton.conf &
+pkill 'picom'
+picom --config ~/.config/picom.conf &

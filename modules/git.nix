@@ -44,6 +44,7 @@ in
         merge.tool = "vimdiff";
         mergetool.prompt = false;
         init.defaultBranch = "main";
+        push.autoSetupRemote = true;
       };
     };
   };

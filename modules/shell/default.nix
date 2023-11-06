@@ -38,7 +38,7 @@ in {
       zip unzip file hexedit 
 
       findutils ripgrep fd tree fzf 
-      autojump ranger exa gettext entr 
+      autojump ranger eza gettext entr 
   
       watch pv moreutils multitail miller jq direnv dos2unix up
       

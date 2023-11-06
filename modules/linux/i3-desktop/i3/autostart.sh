@@ -3,7 +3,7 @@
 xsetroot -solid '#222255' &
 autorandr -c &
 feh --recursive --randomize --bg-fill ~/.wallpapers
-compton --config ~/.config/compton.conf &
+picom --config ~/.config/picom.conf &
 
 sleep 1
 unclutter &
