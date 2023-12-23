@@ -6,7 +6,8 @@ let
   username = "adamr";
   home = "/home/${username}";
 in
-{
+  {
+
   imports = lib.optional (
     builtins.pathExists ../../private/systems/skyhook/system.nix
   ) (
@@ -14,9 +15,13 @@ in
   );
   
   environment.systemPackages = with pkgs; [
-    git vim qemu 
+    git vim qemu networkmanager-fortisslvpn openfortivpn (callPackage ../../packages/openfortivpn-webview.nix {})
   ];
   boot.loader.systemd-boot.memtest86.enable = true;
+
+  environment.etc."ppp/options".text = ''
+  ipcp-accept-remote
+  '';
 
   time.timeZone = "Pacific/Auckland";
 
@@ -79,8 +84,8 @@ in
     liveRestore = false;
     autoPrune.enable = true;
     extraOptions = ''
-      --default-address-pool="base=172.21.0.0/16,size=24"
-      --bip 172.20.64.0/24
+      --default-address-pool="base=172.121.0.0/16,size=24"
+      --bip 172.120.64.0/24
     '';
   };
 

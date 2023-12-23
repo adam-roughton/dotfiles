@@ -25,9 +25,11 @@
       # rust
       rustc cargo rustfmt
 
-      # K8s
+      # kubernetes
       aws-iam-authenticator
       kubetail
+      azure-cli
+      kubelogin
 
       mysql
       postgresql
