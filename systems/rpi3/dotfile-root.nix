@@ -24,7 +24,7 @@ in rec {
     vm = (nixos rec { inherit system configuration; } // {
       virtualisation.memorySize = "900M";
       virtualisation.cores = 1;
-    }).config.vm;
+    }).vm;
 
     diskImage = (nixos {
       inherit system;

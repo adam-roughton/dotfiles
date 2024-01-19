@@ -76,9 +76,7 @@
     enable = true;
     enableSshSupport = true;
     sshKeys = [ user.gpgSshKeygrip.spacemonkey ];
-    extraConfig = ''
-      pinentry-program ${pkgs.pinentry-gtk2}/bin/pinentry
-    '';
+    pinentryFlavor = "gnome3";
   };
   
   manual.manpages.enable = true;

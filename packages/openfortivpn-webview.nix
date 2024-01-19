@@ -1,6 +1,6 @@
-{ stdenv, lib, fetchFromGitHub, buildNpmPackage, electron_25, nodejs_18 }:
+{ stdenv, lib, fetchFromGitHub, buildNpmPackage, electron_28, nodejs_18 }:
 let
-  electron = electron_25;
+  electron = electron_28;
 in
 buildNpmPackage rec {
   pname = "openfortivpn-webview";
