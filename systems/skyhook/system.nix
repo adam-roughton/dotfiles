@@ -105,7 +105,7 @@ in
         user = "${username}";
       };
     };
-    xkbOptions = "caps:escape";
+    xkb.options = "caps:escape";
   };
 
   services.lorri.enable = true;

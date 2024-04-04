@@ -50,7 +50,12 @@ in
       userSettings = {
         "[python]"= {
           "editor.formatOnType" = true;
-          "editor.defaultFormatter" = "ms-python.black-formatter";
+          "editor.defaultFormatter" = "charliermarsh.ruff";
+          "editor.formatOnSave" = true;
+          "editor.codeActionsOnSave" = {
+            "source.fixAll" = true;
+            "source.organizeImports" = true;
+          };
         };
         "editor.formatOnSave"= true;
         "editor.inlineSuggest.enabled"= true;

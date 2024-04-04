@@ -34,7 +34,7 @@ in {
   config = {
     home.packages = with pkgs; [ 
       zsh zsh-syntax-highlighting nix-zsh-completions
-      bashmount ncdu htop 
+      bashmount ncdu htop zenith
       zip unzip file hexedit 
 
       findutils ripgrep fd tree fzf 
