@@ -19,8 +19,8 @@
       haskellPackages.ShellCheck
 
       # python
-      python3
-      python3Packages.virtualenv pipenv python3Packages.black
+      python311
+      python311Packages.virtualenv pipenv python311Packages.black
 
       # rust
       rustc cargo rustfmt

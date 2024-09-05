@@ -35,7 +35,7 @@ in
   };
   services.throttled.enable = true;
   services.xserver.videoDrivers = [ "intel" ];
-  services.xserver.libinput = {
+  services.libinput = {
     enable = true;
     touchpad = {
       scrollMethod = "twofinger";
@@ -56,6 +56,6 @@ in
     enable = true;
     package = pkgs.pulseaudioFull;
   };
-  hardware.opengl.driSupport32Bit = true;
+  hardware.graphics.enable32Bit = true;
   hardware.opengl.extraPackages = [ pkgs.intel-ocl ];
 }

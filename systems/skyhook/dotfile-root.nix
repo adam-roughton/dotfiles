@@ -16,7 +16,7 @@ rec {
     nixpkgs.config.allowBroken = true;
     nixpkgs.config.allowUnfree = true;
     nixpkgs.config.cudaSupport = true;
-    nixpkgs.config.permittedInsecurePackages = ["electron-25.9.0"];
+    nixpkgs.config.permittedInsecurePackages = ["electron-28.3.3"];
     
     nixpkgs.overlays = [
       (import ./overlay.nix)

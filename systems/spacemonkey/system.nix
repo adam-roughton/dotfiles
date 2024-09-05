@@ -87,13 +87,14 @@ in
         enable = true;
         greeter.enable = false;
       };
-      autoLogin = {
-        enable = true;
-        user = "${username}";
-      };
     };
     xkbOptions = "caps:escape";
   };
+  services.displayManager.autoLogin = {
+    enable = true;
+    user = "${username}";
+  };
+
 
   services.lorri.enable = true;
 

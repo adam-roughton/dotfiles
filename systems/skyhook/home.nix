@@ -75,7 +75,7 @@
   services.gpg-agent = {
     enable = true;
     enableSshSupport = true;
-    sshKeys = [ user.gpgSshKeygrip.spacemonkey ];
+    sshKeys = [ user.gpgSshKeygrip.skyhook ];
     pinentryPackage = pkgs.pinentry-gnome3;
   };
   

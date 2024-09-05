@@ -100,12 +100,12 @@ in
         enable = true;
         greeter.enable = false;
       };
-      autoLogin = {
-        enable = true;
-        user = "${username}";
-      };
     };
     xkb.options = "caps:escape";
+  };
+  services.displayManager.autoLogin = {
+    enable = true;
+    user = "${username}";
   };
 
   services.lorri.enable = true;

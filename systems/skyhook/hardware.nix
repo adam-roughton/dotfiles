@@ -13,8 +13,8 @@ in
   hardware.nvidia.modesetting.enable = true;
   hardware.nvidia.powerManagement.enable = true;
   hardware.nvidia.powerManagement.finegrained = true;
-  hardware.opengl.driSupport32Bit = true;
-  hardware.opengl.enable = true;
+  hardware.graphics.enable32Bit = true;
+  hardware.graphics.enable = true;
 
   hardware.nvidia.package = config.boot.kernelPackages.nvidiaPackages.latest;
   hardware.nvidia.prime = {
@@ -64,7 +64,7 @@ in
     STOP_CHARGE_THRESH_BAT1 = 90;
   };
   services.throttled.enable = true;
-  services.xserver.libinput = {
+  services.libinput = {
     enable = true;
     touchpad = {
       scrollMethod = "twofinger";
