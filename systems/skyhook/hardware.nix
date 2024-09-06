@@ -9,7 +9,8 @@ in
     "${sources.nixos-hardware}/lenovo/thinkpad/p1"
     "${sources.nixos-hardware}/common/gpu/nvidia/prime.nix"
   ];
-  
+
+  hardware.nvidia.open = false;  
   hardware.nvidia.modesetting.enable = true;
   hardware.nvidia.powerManagement.enable = true;
   hardware.nvidia.powerManagement.finegrained = true;
@@ -80,7 +81,8 @@ in
   };
 
   hardware.bluetooth.enable = true;
-
+  
+  services.pipewire.enable = false;
   hardware.pulseaudio = {
     enable = true;
     package = pkgs.pulseaudioFull;
