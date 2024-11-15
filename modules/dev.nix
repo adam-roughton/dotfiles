@@ -31,7 +31,7 @@
       azure-cli
       kubelogin
 
-      mysql
+      mariadb
       postgresql
       jsonnet
     ];

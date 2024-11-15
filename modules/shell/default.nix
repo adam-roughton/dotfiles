@@ -54,7 +54,7 @@ in {
 
       haskellPackages.pandoc 
       
-      sqlite 
+      sqlite-interactive
 
       awscli (pkgs.callPackage ./aws-console.nix {}) 
     

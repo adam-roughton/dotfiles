@@ -1,25 +1,20 @@
-{ stdenv, lib, fetchFromGitHub, buildNpmPackage, electron_28, nodejs_18 }:
-let
-  electron = electron_28;
-in
+{ stdenv, lib, fetchFromGitHub, buildNpmPackage, electron, nodejs_18 }:
 buildNpmPackage rec {
   pname = "openfortivpn-webview";
-  version = "1.1.2";
+  version = "1.2.3";
   buildInputs = [ 
     electron
   ];
-  src = let
-    repo = fetchFromGitHub {
-      owner = "gm-vm";
-      repo = "openfortivpn-webview";
-      rev = "v${version}-electron";
-      sha256 = "BNotbb2pL7McBm0SQwcgEvjgS2GId4HVaxWUz/ODs6w=";
-    };
-  in "${repo}/openfortivpn-webview-electron";
-  
+  src = fetchFromGitHub {
+    owner = "gm-vm";
+    repo = "openfortivpn-webview";
+    rev = "v${version}-electron";
+    sha256 = "jGDCFdqRfnYwUgVs3KO1pDr52JgkYVRHi2KvABaZFl4=";
+  };
+  sourceRoot = "${src.name}/openfortivpn-webview-electron";
   dontNpmBuild = true;
   makeCacheWritable = true;
-  npmDepsHash = "sha256-FvonIgVWAB0mHQaYcJkrZ9pn/nrTju2Br5OkmtGFsIk=";
+  npmDepsHash = "sha256-NKGu9jZMc+gd4BV1PnF4ukCNkjdUpZIJlYJ7ZzO+5WI=";
 
   node = nodejs_18;
   postBuild = ''

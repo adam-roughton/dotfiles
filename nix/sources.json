@@ -5,10 +5,10 @@
         "homepage": "https://docs.drone.io/cli/install/",
         "owner": "drone",
         "repo": "drone-cli",
-        "rev": "bb3f656485ac8c289fe85b9f62d59993ffabf6dc",
-        "sha256": "15nykcj0h3fmfd1hidyvp52yszdnd03dm6flmcsd2hxvb4d6r34s",
+        "rev": "6faebd87685013ae4459676b970e4480db383e83",
+        "sha256": "01d1c662bq0c1mzh46mf9cw2g5q3g93zq4r797impbg964gndwcp",
         "type": "tarball",
-        "url": "https://github.com/drone/drone-cli/archive/bb3f656485ac8c289fe85b9f62d59993ffabf6dc.tar.gz",
+        "url": "https://github.com/drone/drone-cli/archive/6faebd87685013ae4459676b970e4480db383e83.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz",
         "version": "v1.2.0"
     },
@@ -18,10 +18,10 @@
         "homepage": "",
         "owner": "nix-community",
         "repo": "home-manager",
-        "rev": "471e3eb0a114265bcd62d11d58ba8d3421ee68eb",
-        "sha256": "1smfj6fb3jc80gbavdf603nz782fb96d9k5w36g61zliw5g2qfvz",
+        "rev": "1d0862ee2d7c6f6cd720d6f32213fa425004be10",
+        "sha256": "0hqmxdp6wz8z305w7pb582ardsyn45wgr55mck2isk43jrjriba2",
         "type": "tarball",
-        "url": "https://github.com/nix-community/home-manager/archive/471e3eb0a114265bcd62d11d58ba8d3421ee68eb.tar.gz",
+        "url": "https://github.com/nix-community/home-manager/archive/1d0862ee2d7c6f6cd720d6f32213fa425004be10.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "niv": {
@@ -30,10 +30,10 @@
         "homepage": "https://github.com/nmattia/niv",
         "owner": "nmattia",
         "repo": "niv",
-        "rev": "f7c538837892dd2eb83567c9f380a11efb59b53f",
-        "sha256": "0xl33k24vfc29cg9lnp95kvcq69qbq5fzb7jk9ig4lgrhaarh651",
+        "rev": "55422d6f2618cd2195eeafa3f16ae63fde723c15",
+        "sha256": "1s6m41hhsydf3lw6ihksc904vcpyd5agwiqq8hb8plyqvsyn74ba",
         "type": "tarball",
-        "url": "https://github.com/nmattia/niv/archive/f7c538837892dd2eb83567c9f380a11efb59b53f.tar.gz",
+        "url": "https://github.com/nmattia/niv/archive/55422d6f2618cd2195eeafa3f16ae63fde723c15.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "nixos-hardware": {
@@ -42,10 +42,10 @@
         "homepage": "",
         "owner": "nixos",
         "repo": "nixos-hardware",
-        "rev": "880be1ab837e1e9fe0449dae41ac4d034694d4ce",
-        "sha256": "1n3xnz7vf39gcxvg4qw68w2d4nhspvfc47mq3fdnaakaakas65va",
+        "rev": "f6581f1c3b137086e42a08a906bdada63045f991",
+        "sha256": "1qjivy929fpjf736f78v6hdhv64jgx2m1aff85w1d3cw7c4ppmag",
         "type": "tarball",
-        "url": "https://github.com/nixos/nixos-hardware/archive/880be1ab837e1e9fe0449dae41ac4d034694d4ce.tar.gz",
+        "url": "https://github.com/nixos/nixos-hardware/archive/f6581f1c3b137086e42a08a906bdada63045f991.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "nixpkgs": {
@@ -54,10 +54,10 @@
         "homepage": "",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "9bb1e7571aadf31ddb4af77fc64b2d59580f9a39",
-        "sha256": "1kkzvi3vc14k6sp829hc73228yixjl4m4sp37scjynx4shmhbpb1",
+        "rev": "24f0d4acd634792badd6470134c387a3b039dace",
+        "sha256": "0bvz453039jpis0gj18h8i9qj8cyngn7l7lqgqk4d7nybszkygxk",
         "type": "tarball",
-        "url": "https://github.com/nixos/nixpkgs/archive/9bb1e7571aadf31ddb4af77fc64b2d59580f9a39.tar.gz",
+        "url": "https://github.com/nixos/nixpkgs/archive/24f0d4acd634792badd6470134c387a3b039dace.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     }
 }
