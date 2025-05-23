@@ -15,7 +15,7 @@ in
   );
   
   environment.systemPackages = with pkgs; [
-    git vim qemu networkmanager-fortisslvpn openfortivpn #(callPackage ../../packages/openfortivpn-webview.nix {})
+    git vim qemu networkmanager-fortisslvpn openfortivpn 
   ];
   boot.loader.systemd-boot.memtest86.enable = true;
 

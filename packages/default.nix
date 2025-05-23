@@ -7,6 +7,4 @@ rec {
   matrix-creator-hal = pkgs.callPackage ./matrix-creator-hal.nix { inherit wiringpi; };
 
   matrix-creator-init = pkgs.callPackage ./matrix-creator-init.nix { inherit wiringpi matrixio-xc3sprog matrix-creator-hal; };
-
-  openfortivpn-webview = pkgs.callPackage ./openfortivpn-webview.nix {};
 }
