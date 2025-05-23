@@ -20,7 +20,7 @@
 
       # python
       python311
-      python311Packages.virtualenv pipenv python311Packages.black
+      python311Packages.virtualenv pipenv uv hatch
 
       # rust
       rustc cargo rustfmt

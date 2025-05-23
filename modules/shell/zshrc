@@ -83,10 +83,6 @@ $ '
 source $HOME/.nix-profile/etc/profile.d/autojump.sh
 source $HOME/.nix-profile/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
-export FZF_DEFAULT_OPTS='--no-height'
-source $HOME/.nix-profile/share/fzf/completion.zsh
-source $HOME/.nix-profile/share/fzf/key-bindings.zsh
-
 source $HOME/.aliases
 
 # Utils
@@ -128,3 +124,7 @@ zle-upify() {
 zle -N zle-upify
 
 bindkey '^U' zle-upify
+
+export FZF_DEFAULT_OPTS='--no-height'
+# Set up fzf key bindings and fuzzy completion
+source <(fzf --zsh)
