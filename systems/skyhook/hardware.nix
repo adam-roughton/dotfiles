@@ -83,7 +83,7 @@ in
   hardware.bluetooth.enable = true;
   
   services.pipewire.enable = false;
-  hardware.pulseaudio = {
+  services.pulseaudio = {
     enable = true;
     package = pkgs.pulseaudioFull;
   };

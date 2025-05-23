@@ -45,58 +45,51 @@ in
     programs.vscode = with pkgs; {
       enable = true;
       package = vscode;
-      extensions = [ jupyter ] ++ vscode-utils.extensionsFromVscodeMarketplace extensions.extensions;
       mutableExtensionsDir = true;
-      userSettings = {
-        "[python]"= {
-          "editor.formatOnType" = true;
-          "editor.defaultFormatter" = "charliermarsh.ruff";
-          "editor.formatOnSave" = true;
-          "editor.codeActionsOnSave" = {
-            "source.fixAll" = true;
-            "source.organizeImports" = true;
+      profiles.default = {
+        extensions = [ jupyter ] ++ vscode-utils.extensionsFromVscodeMarketplace extensions.extensions;
+        userSettings = {
+          "[python]"= {
+            "editor.formatOnType" = true;
+            "editor.defaultFormatter" = "charliermarsh.ruff";
+            "editor.formatOnSave" = true;
+            "editor.codeActionsOnSave" = {
+              "source.fixAll" = "explicit";
+              "source.organizeImports" = "explicit";
+            };
+          };
+          "editor.formatOnSave"= true;
+          "editor.inlineSuggest.enabled"= true;
+          "editor.minimap.enabled"= false;
+          "evenBetterToml.formatter.allowedBlankLines"= 2;
+          "evenBetterToml.formatter.columnWidth"= 50;
+          "evenBetterToml.formatter.indentTables"= true;
+          "evenBetterToml.formatter.reorderArrays"= true;
+          "evenBetterToml.formatter.reorderKeys"= true;
+          "git.autofetch"= true;
+          "git.confirmSync"= false;
+          "git.openRepositoryInParentFolders"= "always";
+          "jupyter.askForKernelRestart"= false;
+          "jupyter.logging.level"= "info";
+          "jupyter.widgetScriptSources"= [
+            "jsdelivr.com"
+            "unpkg.com"
+          ];
+          "python.analysis.typeCheckingMode"= "basic";
+          "python.languageServer"= "Pylance";
+          "vim.useSystemClipboard"= true;
+          "github.copilot.enable"= {
+            "*" = true;
+            "plaintext" = false;
+            "markdown" = false;
           };
         };
-        "editor.formatOnSave"= true;
-        "editor.inlineSuggest.enabled"= true;
-        "editor.minimap.enabled"= false;
-        "evenBetterToml.formatter.allowedBlankLines"= 2;
-        "evenBetterToml.formatter.columnWidth"= 50;
-        "evenBetterToml.formatter.indentTables"= true;
-        "evenBetterToml.formatter.reorderArrays"= true;
-        "evenBetterToml.formatter.reorderKeys"= true;
-        "git.autofetch"= true;
-        "git.confirmSync"= false;
-        "git.openRepositoryInParentFolders"= "always";
-        "jupyter.askForKernelRestart"= false;
-        "jupyter.logging.level"= "info";
-        "jupyter.widgetScriptSources"= [
-          "jsdelivr.com"
-          "unpkg.com"
+        keybindings = [
+          { key = "ctrl+shift+t"; command = "testing.viewAsTree"; }
+          { key = "ctrl-i"; command = "workbench.action.navigateForward"; }
+          { key = "ctrl-o"; command = "workbench.action.navigateBack"; }
         ];
-        "python.analysis.typeCheckingMode"= "basic";
-        "python.formatting.autopep8Args" = [
-          "--max-line-length=120"
-        ];
-        "python.formatting.blackArgs" = [
-          "--line-length"
-          "120"
-        ];
-        "python.formatting.provider"= "black";
-        "python.languageServer"= "Pylance";
-        "vim.useSystemClipboard"= true;
-        "github.copilot.enable"= {
-          "*" = true;
-          "yaml" = true;
-          "plaintext" = false;
-          "markdown" = false;
-        };
       };
-      keybindings = [
-        { key = "ctrl+shift+t"; command = "testing.viewAsTree"; }
-        { key = "ctrl-i"; command = "workbench.action.navigateForward"; }
-        { key = "ctrl-o"; command = "workbench.action.navigateBack"; }
-      ];
     };
   };
 }

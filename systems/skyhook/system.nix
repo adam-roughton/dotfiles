@@ -15,7 +15,7 @@ in
   );
   
   environment.systemPackages = with pkgs; [
-    git vim qemu networkmanager-fortisslvpn openfortivpn (callPackage ../../packages/openfortivpn-webview.nix {})
+    git vim qemu networkmanager-fortisslvpn openfortivpn #(callPackage ../../packages/openfortivpn-webview.nix {})
   ];
   boot.loader.systemd-boot.memtest86.enable = true;
 
@@ -107,6 +107,10 @@ in
     enable = true;
     user = "${username}";
   };
+
+   # i3 lock pam 
+  programs.i3lock.enable = true;
+  security.pam.services.i3lock.enable = true;
 
   services.lorri.enable = true;
 

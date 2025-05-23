@@ -76,7 +76,7 @@
     enable = true;
     enableSshSupport = true;
     sshKeys = [ user.gpgSshKeygrip.skyhook ];
-    pinentryPackage = pkgs.pinentry-gnome3;
+    pinentry.package = pkgs.pinentry-gnome3;
   };
   
   manual.manpages.enable = true;

@@ -2,7 +2,7 @@
 {
   home.packages = with pkgs; [
 
-    acpi arandr autorandr dunst feh i3 i3lock i3status inotify-tools kitty
+    acpi arandr autorandr dunst feh i3 i3status inotify-tools kitty
     libnotify lxappearance maim networkmanagerapplet parcellite pasystray
     pavucontrol pcmanfm picom rofi scrot srandrd unclutter xautolock xdotool
     xfontsel xnee xorg.xbacklight xorg.xev xorg.xkill xsel xclip
@@ -20,6 +20,13 @@
     profileExtra = ''
       eval $(${pkgs.gnome-keyring}/bin/gnome-keyring-daemon --daemonize --components=secrets)
     '';
+  };
+
+  services.screen-locker = {
+    enable = true;
+    xautolock.enable = true;
+    lockCmd = "${pkgs.i3lock}/bin/i3lock --color '#332233'";
+    inactiveInterval = 5;
   };
 
   home.file.".config/i3/config".source = ./i3/config;

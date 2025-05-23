@@ -15,7 +15,7 @@ in
       signing = {
         signByDefault = true;
         key = user.gpgKey;
-        gpgPath = "gpg";
+        signer = "gpg";
       };
       lfs.enable = true;
       ignores = [
@@ -26,6 +26,8 @@ in
       ];
       aliases = {
         co = "checkout";
+        sw = "switch";
+        sb = "switch -c";
         cb = "checkout -b";
         st = "status -sb";
         d = "difftool";
