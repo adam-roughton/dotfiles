@@ -45,7 +45,7 @@
 
   systemd.user.services.battery-notification =
     let p = pkgs.runCommand "battery-notification" {
-      buildInputs = [ pkgs.makeWrapper ];
+      buildInputs = [ pkgs.makeWrapper pkgs.coreutils ];
     } ''
       mkdir -p $out/bin
       makeWrapper ${./scripts/battery-notification.sh} $out/bin/battery-notification.sh \
