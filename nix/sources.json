@@ -5,10 +5,10 @@
         "homepage": "https://docs.drone.io/cli/install/",
         "owner": "drone",
         "repo": "drone-cli",
-        "rev": "6faebd87685013ae4459676b970e4480db383e83",
-        "sha256": "01d1c662bq0c1mzh46mf9cw2g5q3g93zq4r797impbg964gndwcp",
+        "rev": "3c6e2027200dc136decede9704cdfdf63ba79152",
+        "sha256": "1bhwfgzgmwgzzqyf0dip1aypdvh9vpc128c5hq4my0lg3z52ckaw",
         "type": "tarball",
-        "url": "https://github.com/drone/drone-cli/archive/6faebd87685013ae4459676b970e4480db383e83.tar.gz",
+        "url": "https://github.com/drone/drone-cli/archive/3c6e2027200dc136decede9704cdfdf63ba79152.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz",
         "version": "v1.2.0"
     },
@@ -18,10 +18,10 @@
         "homepage": "",
         "owner": "nix-community",
         "repo": "home-manager",
-        "rev": "91287a0e9d42570754487b7e38c6697e15a9aab2",
-        "sha256": "116x19vfidxj8gprqsm24dksphvxm3mjbmf2hjwxjl4rav3h8xvd",
+        "rev": "18f3a0d21c3739a242aafa17c04c5238bbab5a41",
+        "sha256": "0jqs474pi13w1by1cly7ycfdl0yp66fs2f604lf2cd3br8h179mg",
         "type": "tarball",
-        "url": "https://github.com/nix-community/home-manager/archive/91287a0e9d42570754487b7e38c6697e15a9aab2.tar.gz",
+        "url": "https://github.com/nix-community/home-manager/archive/18f3a0d21c3739a242aafa17c04c5238bbab5a41.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "niv": {
@@ -54,10 +54,10 @@
         "homepage": "",
         "owner": "nixos",
         "repo": "nixpkgs",
-        "rev": "ec62ae342c340d24289735e31eb9155261cd5fe7",
-        "sha256": "070hfzr4dqlscaf5kdprzns03w7cgzlvcrz2nqm3ygylnl3xp5sp",
+        "rev": "8d6cdc7756817e0c4b24567271634a44bcf80752",
+        "sha256": "1w5xcghv4d5xkqj3rrww7gqzf29dc5s4c55n3yr5b3mmmg9k7fw9",
         "type": "tarball",
-        "url": "https://github.com/nixos/nixpkgs/archive/ec62ae342c340d24289735e31eb9155261cd5fe7.tar.gz",
+        "url": "https://github.com/nixos/nixpkgs/archive/8d6cdc7756817e0c4b24567271634a44bcf80752.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     }
 }
