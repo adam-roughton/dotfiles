@@ -56,7 +56,7 @@ in {
       
       sqlite-interactive
 
-      awscli (pkgs.callPackage ./aws-console.nix {}) 
+      awscli2 (pkgs.callPackage ./aws-console.nix {}) 
     
       # nix
       nix-prefetch-scripts patchelf
