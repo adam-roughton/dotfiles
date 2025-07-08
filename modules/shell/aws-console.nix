@@ -75,11 +75,17 @@ def aws_console(
       f"&Issuer={issuer}"
     )
 
+    browser = args.browser if args.browser else "xdg-open"
+    browser_extra_args = (
+      list(args.browser_extra_args)
+      if args.browser_extra_args
+      else []
+    )
     subprocess.Popen([
-      "qutebrowser",
-      "--temp-basedir",
-      request_url
-    ], start_new_session=True)
+        browser
+      ] + browser_extra_args + [
+        request_url
+    ])
 
 
 def parse_service_to_page(service_id: str):
@@ -109,6 +115,20 @@ def parse_args():
         "service",
         type=str,
         help="the AWS service to open",
+    )
+    parser.add_argument(
+        "--browser",
+        type=str,
+        required=False,
+        help="the browser binary to invoke.",
+    )
+    parser.add_argument(
+        "--browser-extra-args",
+        nargs="+",
+        type=str,
+        required=False,
+        action='extend',
+        help="extra arguments for the browser.",
     )
     args = parser.parse_args()
     return args
