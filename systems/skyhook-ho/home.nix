@@ -35,5 +35,9 @@ in
   home.username = "adamr";
   home.homeDirectory = "/home/adamr";
   home.stateVersion = "22.05";
+
+  # Work with Ubuntu
+  targets.genericLinux.enable = true;
+  
   programs.home-manager.enable = true;
 }
