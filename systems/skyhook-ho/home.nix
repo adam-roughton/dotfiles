@@ -36,6 +36,15 @@ in
   home.homeDirectory = "/home/adamr";
   home.stateVersion = "22.05";
 
+  home.file.".odbc/odbcinst.ini".text = 
+    let
+      iniDescription = pkg: ''
+        [${pkg.fancyName}]
+        Description = ${pkg.meta.description}
+        Driver = ${pkg}/${pkg.driver}
+      '';
+    in lib.concatMapStringsSep "\n" iniDescription (with pkgs; [ unixODBCDrivers.msodbcsql18 ]);
+
   # Work with Ubuntu
   targets.genericLinux.enable = true;
   
