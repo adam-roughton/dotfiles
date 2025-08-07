@@ -7,7 +7,6 @@ in
     ../../modules/shell
     ../../modules/vim
     ../../modules/fonts
-    ../../modules/apps.nix
     ../../modules/dev.nix
     ../../modules/vscode
     ../../private/systems/superposition/home.nix 
@@ -24,7 +23,7 @@ in
     enable = true;
     enableSshSupport = true;
     sshKeys = [ user.gpgSshKeygrip.superposition ];
-    pinentry.package = pkgs.pinentry-mac;
+    pinentry.package = pkgs.pinentry_mac;
   };
   
   manual.manpages.enable = true;
