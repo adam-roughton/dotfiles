@@ -12,6 +12,8 @@ in
     ../../private/systems/superposition/home.nix 
   ];
 
+  programs.zsh.enable = true;
+
   home.packages = with pkgs; [
     (runCommand "scripts" { src = ./scripts; } ''
       mkdir -p $out/bin
