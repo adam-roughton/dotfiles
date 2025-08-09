@@ -43,7 +43,6 @@ in {
       watch pv moreutils multitail miller jq direnv dos2unix up
       
       paperkey (pass.withExtensions(ext: [ext.pass-otp])) gnupg openssl zbar 
-
       ascii translate-shell units tokei
       graphviz todo-txt-cli 
 
@@ -60,7 +59,6 @@ in {
     
       # nix
       nix-prefetch-scripts patchelf
-      niv
 
       (runCommand "scripts" { src = ./scripts; } ''
         mkdir -p $out/bin
@@ -70,20 +68,107 @@ in {
     ];
 
     programs.bash.enable = true;
+    programs.zsh = {
+      enable = true;
+      enableCompletion = true;
+      autosuggestion.enable = true;
+      syntaxHighlighting.enable = true;
+      defaultKeymap = "vicmd";
+      history = {
+        size = cfg.historySize;
+        append = true;
+        expireDuplicatesFirst = true;
+        extended = true;
+        share = true;
+      };
+      shellAliases = {
+        "ls" = "eza";
+        ".." = "cd ..";
+        "..." = "cd ../..";
+        "...." = "cd ../../..";
+        "....." = "cd ../../../..";
 
-    home.file.".zshrc".text = ''
-      ${pkgs.any-nix-shell}/bin/any-nix-shell zsh | source /dev/stdin
-      source ${pkgs.zsh-syntax-highlighting}/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
-      export HISTSIZE=${toString cfg.historySize}
-      source ${./zshrc}
-      eval "$(direnv hook zsh)"
-    '';
+        "ll" = "eza -l --git --time-style long-iso";
+        "la" = "eza --all --all";
+        "lla" = "eza -l --git --time-style long-iso --all --all";
+        "lr" = "eza -l -snew -r --git --time-style long-iso";
+        "lra" = "eza -l -snew -r --git --time-style long-iso --all --all";
 
-    home.file.".aliases".text = ''
-      ${pkgs.any-nix-shell}/bin/any-nix-shell zsh | source /dev/stdin
-      source ${./aliases}
-      ${extraAliasesStr}
-    '';
+        "r" = "ranger";
+        "t" = "todo.sh";
+        "tf" = "todo.sh list";
+      } // cfg.extraAliases;
+      siteFunctions = {
+        tt = ''
+          todo.sh list +$(date -Idate) 
+        '';
+        ta = ''
+          todo.sh add +$(date -Idate) $1
+        '';
+      };
+      initContent = lib.mkOrder 1500 ''
+      # Keybindings
+      bindkey '^[[3~' delete-char
+      bindkey '^[[1;5C' forward-word
+      bindkey '^[[1;5D' backward-word   
+
+      autoload -U edit-command-line
+      zle -N edit-command-line
+
+      # vi style
+      bindkey -M vicmd v edit-command-line
+
+      # Prompt
+      autoload -U colors zsh/terminfo
+      colors
+
+      autoload -Uz vcs_info
+
+      zstyle ':vcs_info:*' enable git
+      zstyle ':vcs_info:*' check-for-changes true
+      zstyle ':vcs_info:*' unstagedstr !
+      precmd () {
+          if [[ -z $(git ls-files --other --exclude-standard 2> /dev/null) ]] {
+              zstyle ':vcs_info:*' formats '%F{cyan}[%b%c%u%f%F{cyan}]%f'
+          } else {
+              zstyle ':vcs_info:*' formats '%F{cyan}[%b%c%u%f%F{red}●%f%F{cyan}]%f'
+          }
+          vcs_info
+      }
+
+      nixShellPrompt () {
+        case $IN_NIX_SHELL in;
+          pure) NIXSH="[nix-sh(p)]";;
+          impure) NIXSH="[nix-sh(i)]";;
+          *) NIXSH="";;
+        esac
+      }
+
+      setopt prompt_subst
+      nixShellPrompt
+      PS1=''\'''\${return_code}%F{magenta}%n%f@%F{yellow}%m%f%F{cyan}''${NIXSH}%F{yellow}:%B%F{green}%~%f%b ''${vcs_info_msg_0_}
+      $ '
+      '';
+    };
+    programs.direnv = {
+      enable = true;
+      enableZshIntegration = true;
+    };
+    programs.autojump = {
+      enable = true;
+      enableZshIntegration = true;
+    };
+    programs.fzf = {
+      enable = true;
+      enableZshIntegration = true;
+    };
+    programs.password-store = {
+      enable = true;
+      package = pkgs.pass.withExtensions(ext: [ext.pass-otp]);
+      settings = {
+        PASSWORD_STORE_DIR = "${config.home.homeDirectory}/.password-store";
+      };
+    };
 
     home.file.".profile" = {
       text = profileText;
