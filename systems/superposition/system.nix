@@ -19,7 +19,11 @@
       "microsoft-teams"
       "slack"
       "docker"
+      #"nikitabobko/tap/aerospace"
+      "spotify"
+      "1password"
     ];
+
   };
 
   environment.systemPackages = with pkgs; [
