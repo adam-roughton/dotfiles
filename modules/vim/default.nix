@@ -18,18 +18,6 @@
             ];
             opt = [];
           };
-         # vam.knownPlugins = vimPlugins;
-         # vam.pluginDictionaries = [
-         #   { names = [
-         #     "vim-nix"
-         #     "vim-multiple-cursors"
-         #     "gitgutter"
-         #     "easymotion"
-         #     "undotree"
-         #     "fzfWrapper"
-         #     "fzf-vim"
-         #   ];}
-         # ];
           customRC = (builtins.readFile ./vimrc);
         };
       })

@@ -20,7 +20,7 @@ set magic
 set hlsearch
 set incsearch
 set ignorecase smartcase
-set clipboard=unnamedplus
+set clipboard^=unnamed,unnamedplus
 set mouse=a
 
 set cursorline

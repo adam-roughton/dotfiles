@@ -36,6 +36,9 @@
         config = {
           allowUnfree = true;
         };
+        overlays = [
+          (import ./overlay.nix)
+        ];
       });
       extraSpecialArgs = {
          inherit system;

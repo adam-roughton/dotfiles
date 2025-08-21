@@ -73,7 +73,7 @@ in {
       enableCompletion = true;
       autosuggestion.enable = true;
       syntaxHighlighting.enable = true;
-      defaultKeymap = "vicmd";
+      defaultKeymap = "viins";
       history = {
         size = cfg.historySize;
         append = true;
@@ -107,6 +107,9 @@ in {
         '';
       };
       initContent = lib.mkOrder 1500 ''
+      setopt NO_FLOW_CONTROL
+      setopt NO_CLOBBER
+
       # Keybindings
       bindkey '^[[3~' delete-char
       bindkey '^[[1;5C' forward-word
@@ -117,6 +120,8 @@ in {
 
       # vi style
       bindkey -M vicmd v edit-command-line
+
+      unsetopt flow_control
 
       # Prompt
       autoload -U colors zsh/terminfo
