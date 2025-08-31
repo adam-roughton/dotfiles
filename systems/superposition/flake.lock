@@ -60,15 +60,15 @@
     "homebrew-cask": {
       "flake": false,
       "locked": {
-        "lastModified": 1755468026,
-        "narHash": "sha256-Y1BfDnGFIOifUnPrQlEzW+Wl/kQNQmRMqSb/zoZm9lI=",
-        "owner": "homebrew",
+        "lastModified": 1756635317,
+        "narHash": "sha256-RB6lEVm5U1CkpzEvEzWg1ZVLNehDvlmfPKCx4osCSzc=",
+        "owner": "Homebrew",
         "repo": "homebrew-cask",
-        "rev": "92266fd77543f887777f495a5d572b063beb29ea",
+        "rev": "18318cb184f8b5f96b07d13df9281287af3e64d0",
         "type": "github"
       },
       "original": {
-        "owner": "homebrew",
+        "owner": "Homebrew",
         "repo": "homebrew-cask",
         "type": "github"
       }
@@ -76,16 +76,32 @@
     "homebrew-core": {
       "flake": false,
       "locked": {
-        "lastModified": 1755470451,
-        "narHash": "sha256-EQNGMz5lKnMU+OF+V6oEVV+TD62kOIi9h8CVeqSTO1c=",
-        "owner": "homebrew",
+        "lastModified": 1756631207,
+        "narHash": "sha256-L3Z09H2cObTLnmvGwO73SgM3OV37FqeRlRS53COcq3w=",
+        "owner": "Homebrew",
         "repo": "homebrew-core",
-        "rev": "20677e789a71b96a1a1c5f3c82404b40c3041e67",
+        "rev": "da71082c68eab991bd8f1e46e35b5532adc0169f",
         "type": "github"
       },
       "original": {
-        "owner": "homebrew",
+        "owner": "Homebrew",
         "repo": "homebrew-core",
+        "type": "github"
+      }
+    },
+    "homebrew-nikitabobko": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1756592205,
+        "narHash": "sha256-AB7c96r/7JgkBubPrlEFz9yaIPdsD7S8JkLVnGtlhAw=",
+        "owner": "nikitabobko",
+        "repo": "homebrew-tap",
+        "rev": "2eff00794112cf73fdefeec27cd9b30abe644408",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nikitabobko",
+        "repo": "homebrew-tap",
         "type": "github"
       }
     },
@@ -129,6 +145,7 @@
         "home-manager": "home-manager",
         "homebrew-cask": "homebrew-cask",
         "homebrew-core": "homebrew-core",
+        "homebrew-nikitabobko": "homebrew-nikitabobko",
         "nix-homebrew": "nix-homebrew",
         "nixpkgs": "nixpkgs"
       }

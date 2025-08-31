@@ -15,19 +15,22 @@
 
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     homebrew-core = {
-      url = "github:homebrew/homebrew-core";
+      url = "github:Homebrew/homebrew-core";
       flake = false;
     };
     homebrew-cask = {
-      url = "github:homebrew/homebrew-cask";
+      url = "github:Homebrew/homebrew-cask";
       flake = false;
     };
-
+    homebrew-nikitabobko = {
+      url = "github:nikitabobko/homebrew-tap";
+      flake = false;
+    };
   };
 
   outputs = inputs@{ 
     self, nixpkgs, home-manager, darwin, nix-homebrew, 
-    homebrew-core, homebrew-cask, ... 
+    homebrew-core, homebrew-cask, homebrew-nikitabobko, ... 
   }:
     let
       system = "aarch64-darwin";
@@ -71,6 +74,7 @@
                     taps = {
                       "homebrew/homebrew-core" = homebrew-core;
                       "homebrew/homebrew-cask" = homebrew-cask;
+                      "nikitabobko/homebrew-aerospace" = homebrew-nikitabobko;
                     };
                     mutableTaps = false;
                   };

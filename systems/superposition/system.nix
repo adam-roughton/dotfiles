@@ -18,8 +18,8 @@
     casks = [
       "microsoft-teams"
       "slack"
-      "docker"
-      #"nikitabobko/tap/aerospace"
+      "docker-desktop"
+      "nikitabobko/aerospace/aerospace"
       "spotify"
       "1password"
     ];
@@ -29,6 +29,7 @@
   environment.systemPackages = with pkgs; [
     kitty
     terminal-notifier
+    colima
   ];
 
   users.users."Adam.Roughton" = {
