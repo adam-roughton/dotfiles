@@ -18,7 +18,6 @@
     casks = [
       "microsoft-teams"
       "slack"
-      "docker-desktop"
       "nikitabobko/aerospace/aerospace"
       "spotify"
       "1password"
@@ -30,6 +29,7 @@
     kitty
     terminal-notifier
     colima
+    docker-client
   ];
 
   users.users."Adam.Roughton" = {

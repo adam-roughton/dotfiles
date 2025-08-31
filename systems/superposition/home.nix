@@ -1,8 +1,7 @@
 { pkgs, lib, system, ... }@args:
 let 
   user = import ../../user.nix;
-in
-{
+in rec{
   imports = [ 
     ../../modules/shell
     ../../modules/vim
@@ -34,6 +33,10 @@ in
   home.username = "Adam.Roughton";
   home.homeDirectory = "/Users/Adam.Roughton";
   home.stateVersion = "25.05";
+
+  home.sessionVariables = {
+    DOCKER_HOST="unix://${home.homeDirectory}/.colima/default/docker.sock";
+  };
 
   home.file.".odbc/odbcinst.ini".text = 
     let
