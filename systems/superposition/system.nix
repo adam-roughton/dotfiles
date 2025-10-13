@@ -25,6 +25,10 @@
       "obsidian"
     ];
 
+    brews = [
+      "openssl@3"
+    ];
+
   };
 
   environment.systemPackages = with pkgs; [
@@ -43,7 +47,9 @@
         Description = ${pkg.meta.description}
         Driver = ${pkg}/${pkg.driver}
       '';     
-    in with pkgs.unixODBCDrivers; lib.concatMapStringsSep "\n" iniDescription [ msodbcsql18 ];
+    in with pkgs.unixODBCDrivers; lib.concatMapStringsSep "\n" iniDescription [ 
+      msodbcsql18
+    ];
 
   users.users."Adam.Roughton" = {
     home = "/Users/Adam.Roughton";
