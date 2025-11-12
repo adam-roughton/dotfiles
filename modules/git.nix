@@ -5,35 +5,25 @@ in
 {
   config = {
     home.packages = with pkgs; [ 
-      gitAndTools.hub tig gist git-crypt
+      tig gist git-crypt
     ];
 
     programs.git = {
       enable = true;
-      userName = user.name;
-      userEmail = user.email;
-      signing = {
-        signByDefault = true;
-        key = user.gpgKey;
-        signer = "gpg";
-      };
-      lfs.enable = true;
-      ignores = [
-        "*.iml"
-        "*.sw*"
-        ".envrc"
-        "shell.nix"
-      ];
-      aliases = {
-        co = "checkout";
-        sw = "switch";
-        sb = "switch -c";
-        cb = "checkout -b";
-        st = "status -sb";
-        d = "difftool";
-        m = "mergetool";
-      };
-      extraConfig = {
+      settings = {
+        user = {
+          name = user.name;
+          email = user.email;
+        };
+        alias = {
+          co = "checkout";
+          sw = "switch";
+          sb = "switch -c";
+          cb = "checkout -b";
+          st = "status -sb";
+          d = "difftool";
+          m = "mergetool";
+        };
         url = {
           "ssh://git@github.com" = { insteadOf = "https://github.com"; };
         };
@@ -48,6 +38,18 @@ in
         init.defaultBranch = "main";
         push.autoSetupRemote = true;
       };
+      signing = {
+        signByDefault = true;
+        key = user.gpgKey;
+        signer = "gpg";
+      };
+      lfs.enable = true;
+      ignores = [
+        "*.iml"
+        "*.sw*"
+        ".envrc"
+        "shell.nix"
+      ];
     };
   };
 }

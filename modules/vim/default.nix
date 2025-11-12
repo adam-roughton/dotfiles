@@ -3,7 +3,7 @@
   config = {
     home.packages = with pkgs; [
       fzf
-      (vim_configurable.customize {
+      (vim-full.customize {
         name = "vim";
         vimrcConfig = {
           packages.myplugins = with pkgs.vimPlugins; {
