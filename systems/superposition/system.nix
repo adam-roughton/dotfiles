@@ -23,6 +23,7 @@
       "spotify"
       "1password"
       "obsidian"
+      "betterdisplay"
     ];
 
     brews = [
