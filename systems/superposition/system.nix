@@ -24,6 +24,7 @@
       "1password"
       "obsidian"
       "betterdisplay"
+      "drawio"
     ];
 
     brews = [
