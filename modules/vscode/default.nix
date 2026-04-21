@@ -83,6 +83,11 @@ in
             "plaintext" = false;
             "markdown" = false;
           };
+          "chat.plugins.marketplaces" = [
+            "github/copilot-plugins"
+            "github/awesome-copilot"
+            "https://github.com/VistaCinema/data-engineering-skills"
+          ];
         };
         keybindings = [
           { key = "ctrl+shift+t"; command = "testing.viewAsTree"; }
