@@ -29,6 +29,7 @@
 
     brews = [
       "openssl@3"
+      "unixodbc" # some python binaries hardcode brew paths
     ];
 
   };
@@ -38,7 +39,7 @@
     terminal-notifier
     colima
     docker-client
-    unixODBC
+    unixodbc
   ];
 
   # Copied from NixOS
@@ -49,7 +50,7 @@
         Description = ${pkg.meta.description}
         Driver = ${pkg}/${pkg.driver}
       '';     
-    in with pkgs.unixODBCDrivers; lib.concatMapStringsSep "\n" iniDescription [ 
+    in with pkgs.unixodbcDrivers; lib.concatMapStringsSep "\n" iniDescription [ 
       msodbcsql18
     ];
 
