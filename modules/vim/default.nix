@@ -10,10 +10,10 @@
             start = [
               vim-nix
               vim-multiple-cursors
-              gitgutter
-              easymotion
+              vim-gitgutter
+              vim-easymotion
               undotree
-              fzfWrapper
+              fzf-wrapper
               fzf-vim
             ];
             opt = [];

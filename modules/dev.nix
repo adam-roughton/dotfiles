@@ -13,7 +13,7 @@
       gradle 
 
       # scala
-      openjdk8 sbt scala
+      jdk17 sbt scala
 
       # sh
       haskellPackages.ShellCheck

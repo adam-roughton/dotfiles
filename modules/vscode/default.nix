@@ -75,6 +75,7 @@ in
             "jsdelivr.com"
             "unpkg.com"
           ];
+          "jupyter.debugJustMyCode"= false;
           "python.analysis.typeCheckingMode"= "basic";
           "python.languageServer"= "Pylance";
           "vim.useSystemClipboard"= true;

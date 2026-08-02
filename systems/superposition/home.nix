@@ -8,6 +8,7 @@ in rec{
     ../../modules/fonts
     ../../modules/dev.nix
     ../../modules/vscode
+    ../../modules/agent-sandbox.nix
     ../../private/systems/superposition/home.nix 
   ];
 
@@ -48,4 +49,10 @@ in rec{
     in lib.concatMapStringsSep "\n" iniDescription (with pkgs; [ unixODBCDrivers.msodbcsql18 ]);
 
   programs.home-manager.enable = true;
+  
+  programs.agent-sandbox = {
+    enable = true;
+  };
+
+
 }
