@@ -25,6 +25,7 @@
       "obsidian"
       "betterdisplay"
       "drawio"
+      "kitty"
     ];
 
     brews = [
@@ -35,7 +36,6 @@
   };
 
   environment.systemPackages = with pkgs; [
-    kitty
     terminal-notifier
     colima
     docker-client
