@@ -12,7 +12,13 @@ in rec{
     ../../private/systems/superposition/home.nix 
   ];
 
-  programs.zsh.enable = true;
+  programs.zsh = {
+    enable = true;
+    initContent = ''
+    export DOCKER_HOST="unix://${home.homeDirectory}/.colima/default/docker.sock";
+    export SSH_AUTH_SOCK="$(gpgconf --list-dirs agent-ssh-socket)"
+    '';
+  };
 
   home.packages = with pkgs; [
     (runCommand "scripts" { src = ./scripts; } ''
@@ -34,10 +40,6 @@ in rec{
   home.username = "Adam.Roughton";
   home.homeDirectory = "/Users/Adam.Roughton";
   home.stateVersion = "25.05";
-
-  home.sessionVariables = {
-    DOCKER_HOST="unix://${home.homeDirectory}/.colima/default/docker.sock";
-  };
 
   home.file.".odbc/odbcinst.ini".text = 
     let
