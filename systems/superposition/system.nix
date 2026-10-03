@@ -31,6 +31,7 @@
     brews = [
       "openssl@3"
       "unixodbc" # some python binaries hardcode brew paths
+      "lima"
     ];
 
   };
