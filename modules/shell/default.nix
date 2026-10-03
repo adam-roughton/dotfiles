@@ -34,7 +34,7 @@ in {
   config = {
     home.packages = with pkgs; [ 
       zsh zsh-syntax-highlighting nix-zsh-completions
-      bashmount ncdu htop zenith
+      ncdu htop zenith
       zip unzip file hexedit 
 
       findutils ripgrep fd tree fzf 
@@ -65,7 +65,9 @@ in {
         cp $src/* $out/bin
         chmod +x $out/bin/*
       '')
-    ];
+    ] ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+      bashmount 
+    ]; 
 
     programs.bash.enable = true;
     programs.zsh = {
