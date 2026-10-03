@@ -46,7 +46,7 @@ in rec{
         Description = ${pkg.meta.description}
         Driver = ${pkg}/${pkg.driver}
       '';
-    in lib.concatMapStringsSep "\n" iniDescription (with pkgs; [ unixODBCDrivers.msodbcsql18 ]);
+    in lib.concatMapStringsSep "\n" iniDescription (with pkgs; [ unixodbcDrivers.msodbcsql18 ]);
 
   programs.home-manager.enable = true;
   

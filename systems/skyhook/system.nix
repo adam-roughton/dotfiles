@@ -23,7 +23,7 @@ in
   ipcp-accept-remote
   '';
 
-  environment.unixODBCDrivers = with pkgs.unixODBCDrivers; [ msodbcsql18 ];
+  environment.unixodbcDrivers = with pkgs.unixodbcDrivers; [ msodbcsql18 ];
 
   time.timeZone = "Pacific/Auckland";
 
