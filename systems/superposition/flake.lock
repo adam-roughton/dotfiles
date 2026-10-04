@@ -105,6 +105,22 @@
         "type": "github"
       }
     },
+    "homebrew-superradcompany": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1790868997,
+        "narHash": "sha256-n6BMgq98pwmE2oMFElLQ9NM+2CuCZw/mt3IPxxAxgVk=",
+        "owner": "superradcompany",
+        "repo": "homebrew-tap",
+        "rev": "caaec33a82ada3f1979afbdd68ae50c93c9cf1d7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "superradcompany",
+        "repo": "homebrew-tap",
+        "type": "github"
+      }
+    },
     "nix-homebrew": {
       "inputs": {
         "brew-src": "brew-src"
@@ -146,6 +162,7 @@
         "homebrew-cask": "homebrew-cask",
         "homebrew-core": "homebrew-core",
         "homebrew-nikitabobko": "homebrew-nikitabobko",
+        "homebrew-superradcompany": "homebrew-superradcompany",
         "nix-homebrew": "nix-homebrew",
         "nixpkgs": "nixpkgs"
       }

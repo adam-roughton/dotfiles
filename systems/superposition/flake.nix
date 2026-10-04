@@ -26,11 +26,16 @@
       url = "github:nikitabobko/homebrew-tap";
       flake = false;
     };
+    homebrew-superradcompany = {
+      url = "github:superradcompany/homebrew-tap";
+      flake = false;
+    };
   };
 
   outputs = inputs@{ 
     self, nixpkgs, home-manager, darwin, nix-homebrew, 
-    homebrew-core, homebrew-cask, homebrew-nikitabobko, ... 
+    homebrew-core, homebrew-cask, homebrew-nikitabobko,
+    homebrew-superradcompany, ... 
   }:
     let
       system = "aarch64-darwin";
@@ -75,6 +80,7 @@
                       "homebrew/homebrew-core" = homebrew-core;
                       "homebrew/homebrew-cask" = homebrew-cask;
                       "nikitabobko/homebrew-aerospace" = homebrew-nikitabobko;
+                      "superradcompany/homebrew-microsandbox" = homebrew-superradcompany;
                     };
                     mutableTaps = false;
                   };
