@@ -114,5 +114,43 @@
           extraSpecialArgs = { system = "x86_64-linux"; };
         };
       };
+
+      packages = nixpkgs.lib.genAttrs [ "aarch64-linux" "x86_64-linux" ] (system:
+        let
+          pkgs = import nixpkgs {
+            inherit system;
+            config.allowUnfree = true;
+          };
+          home = home-manager.lib.homeManagerConfiguration {
+            inherit pkgs;
+            modules = [ ./systems/agent-computer/home.nix ];
+          };
+          contents = pkgs.buildEnv {
+            name = "dotfiles-agent-image-contents";
+            paths = [ pkgs.bashInteractive pkgs.zsh ] ++ home.config.home.packages;
+            pathsToLink = [ "/bin" "/sbin" "/lib" "/share" ];
+          };
+        in {
+          agent-image = pkgs.dockerTools.buildLayeredImage {
+            name = "dotfiles-agent";
+            tag = "latest";
+            contents = [ contents ];
+            extraCommands = ''
+              mkdir -p root workspace
+              cp ${./systems/agent-computer/AGENTS.md} AGENTS.md
+              cp ${./systems/agent-computer/AGENTS.md} root/AGENTS.md
+            '';
+            config = {
+              Cmd = [ "${pkgs.zsh}/bin/zsh" ];
+              Env = [
+                "HOME=/root"
+                "PATH=/bin:/sbin"
+                "SHELL=${pkgs.zsh}/bin/zsh"
+                "USER=root"
+              ];
+              WorkingDir = "/workspace";
+            };
+          };
+        });
     };
 }

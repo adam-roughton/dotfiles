@@ -7,7 +7,7 @@ set -o pipefail
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
 usage() {
-  echo "usage: $0 {build|vm|disk-image|firmware|switch|update|clean} SYSTEM [NIX OPTIONS...]" >&2
+  echo "usage: $0 {build|image|vm|disk-image|firmware|switch|update|clean} [SYSTEM] [NIX OPTIONS...]" >&2
   exit 1
 }
 
@@ -27,6 +27,21 @@ flake_attr() {
   esac
 }
 
+host_system() {
+  case "$(uname -m)" in
+    aarch64|arm64)
+      echo "aarch64-linux"
+      ;;
+    x86_64|amd64)
+      echo "x86_64-linux"
+      ;;
+    *)
+      echo "unsupported host architecture: $(uname -m)" >&2
+      exit 1
+      ;;
+  esac
+}
+
 build_attr() {
   local system_name="$1"
   local target="$2"
@@ -40,6 +55,10 @@ mode="${1:-}"
 shift || true
 
 case "$mode" in
+  "image")
+    nix build --no-link --print-out-paths \
+      "$DOTFILES_DIR#packages.$(host_system).agent-image" "$@"
+    ;;
   "build")
     system_name="${1:?system name is required}"
     shift

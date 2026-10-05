@@ -25,6 +25,7 @@ location relative to itself.
 | `skyhook` | NixOS / x86_64 | `nixosConfigurations.skyhook` |
 | `rpi3` | NixOS / aarch64 | `nixosConfigurations.rpi3` |
 | `skyhook-ho` | Home Manager / x86_64 | `homeConfigurations."adamr@skyhook-ho"` |
+| `agent-image` | OCI / aarch64 or x86_64 Linux | `packages.<system>.agent-image` |
 
 ## Commands
 
@@ -81,6 +82,29 @@ Build and launch the NixOS VM for a system.
 This command is intended for the NixOS configurations, not the Darwin
 configuration.
 
+### Microsandbox Image
+
+Build an OCI image containing the shell and development packages from this
+repository. The image is built for the current host system and is suitable for
+loading into microsandbox:
+
+```sh
+./make.sh image
+msb load --input "$(./make.sh image)" --tag dotfiles-agent:latest
+msb run dotfiles-agent:latest
+```
+
+The image supports `aarch64-linux` and `x86_64-linux`. To build a specific
+system directly:
+
+```sh
+nix build .#packages.aarch64-linux.agent-image
+nix build .#packages.x86_64-linux.agent-image
+```
+
+The default command starts zsh in `/workspace`. Mount a project directory
+there when creating a microsandbox environment.
+
 ### Raspberry Pi Images
 
 Build an SD card image for the Raspberry Pi configuration:
@@ -131,6 +155,7 @@ directly with Nix:
 nix flake show --all-systems
 nix build .#nixosConfigurations.skyhook.config.system.build.toplevel
 nix build .#nixosConfigurations.rpi3.config.system.build.sdImage
+nix build .#packages.aarch64-linux.agent-image
 home-manager switch --flake .#adamr@skyhook-ho
 darwin-rebuild switch --flake .#superposition
 ```
