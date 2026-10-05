@@ -1,7 +1,6 @@
 { config, pkgs, ... }:
 
 let
-  sources = import ../../nix/sources.nix;
 in
 {
   boot.loader.grub.enable = false;
@@ -17,25 +16,6 @@ in
   ];
 
 
-  boot.loader.raspberryPi.enable = true;
-  boot.loader.raspberryPi.version = 3;
-  boot.loader.raspberryPi.uboot = {
-    enable = true;
-    configurationLimit = 2;
-  };
-
-  boot.loader.raspberryPi.firmwareConfig = ''
-  avoid_warnings=1
-  kernel=u-boot-rpi3.bin
-  arm_64bit=1
-  enable_uart=0
-  force_turbo=1
-  dtparam=i2c1=on
-  dtparam=i2c_arm=on
-  start_x=1
-  dtparam=audio=on
-  dtoverlay=vc4-kms-v3d  
-  '';
   hardware.enableRedistributableFirmware = true;
 
   hardware.firmware = with pkgs; [
@@ -64,7 +44,6 @@ in
   };
   hardware.bluetooth.enable = true;
 
-  sound.enable = true;
   hardware.pulseaudio = {
     enable = true;
     package = pkgs.pulseaudioFull;

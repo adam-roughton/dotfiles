@@ -6,12 +6,11 @@
     ../../modules/fonts
     ../../modules/linux/i3-desktop
     ../../modules/linux/apps.nix
-    ../../modules/linux/shell.nix
     ../../modules/qutebrowser
     ../../modules/apps.nix
     ../../modules/dev.nix
     ../../modules/vscode
-  ] ++ lib.optional (builtins.pathExists ../../private) ../../private/systems/skyhook/home.nix;
+  ];
 
   home.packages = with pkgs; [
     gparted
@@ -84,6 +83,4 @@
 
   home.stateVersion = "22.05";
 
-  # Force home-manager to use pinned nixpkgs
-  _module.args.pkgs = pkgs.lib.mkForce pkgs;
 }

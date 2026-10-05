@@ -1,6 +1,6 @@
 self: super:
 {
-  qutebrowser = super.qutebrowser.override { enableVulkan = false; python3 = super.python311; };
+  qutebrowser = super.qutebrowser.override { enableVulkan = false; python3 = super.python3; };
   picom = super.picom.overrideAttrs (old: {
     version = "12.5";
     src = super.fetchFromGitHub {

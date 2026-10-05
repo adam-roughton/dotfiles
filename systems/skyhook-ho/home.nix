@@ -10,8 +10,8 @@ in
     ../../modules/apps.nix
     ../../modules/dev.nix
     ../../modules/vscode
-    ../../private/systems/skyhook-ho/home.nix 
-  ];
+  ] ++ lib.optional (builtins.pathExists ../../private/systems/skyhook-ho/home.nix)
+    ../../private/systems/skyhook-ho/home.nix;
 
   home.packages = with pkgs; [
     gparted

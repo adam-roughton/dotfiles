@@ -1,7 +1,6 @@
 { pkgs, lib, config, ... }:
 
 let
-  sources = import ../../nix/sources.nix;
   user = import ../../user.nix;
   username = "adamr";
   home = "/home/${username}";
@@ -15,7 +14,7 @@ in
   );
   
   environment.systemPackages = with pkgs; [
-    git vim qemu networkmanager-fortisslvpn openfortivpn 
+    git vim qemu openfortivpn
   ];
   boot.loader.systemd-boot.memtest86.enable = true;
 
@@ -23,7 +22,7 @@ in
   ipcp-accept-remote
   '';
 
-  environment.unixodbcDrivers = with pkgs.unixodbcDrivers; [ msodbcsql18 ];
+  environment.unixODBCDrivers = with pkgs.unixodbcDrivers; [ msodbcsql18 ];
 
   time.timeZone = "Pacific/Auckland";
 
@@ -126,8 +125,6 @@ in
     extraGroups = [ "wheel" "networkmanager" "docker" "wireshark" ];
     shell = "${pkgs.zsh}/bin/zsh";
   };
-  home-manager.users."${username}" = args: import ./home.nix (args // { inherit pkgs user; });
-
   services.cron.enable = true;
 
   system.stateVersion = "22.05";

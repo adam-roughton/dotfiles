@@ -6,12 +6,11 @@
     ../../modules/fonts
     ../../modules/linux/i3-desktop
     ../../modules/linux/apps.nix
-    ../../modules/linux/shell.nix
     ../../modules/qutebrowser
     ../../modules/apps.nix
     ../../modules/dev.nix
     ../../modules/vscode
-  ] ++ lib.optional (builtins.pathExists ../../private) ../../private/systems/spacemonkey/home.nix;
+  ];
 
   home.packages = with pkgs; [
     gparted
@@ -77,15 +76,12 @@
     enableSshSupport = true;
     sshKeys = [ user.gpgSshKeygrip.spacemonkey ];
     extraConfig = ''
-      pinentry-program ${pkgs.pinentry-gtk2}/bin/pinentry
+      pinentry-program ${pkgs.pinentry-gnome3}/bin/pinentry
     '';
   };
   
   manual.manpages.enable = true;
   news.display = "silent";
 
-  # Force home-manager to use pinned nixpkgs
-  _module.args.pkgs = pkgs.lib.mkForce pkgs;
-  
   home.stateVersion = "22.05";
 }

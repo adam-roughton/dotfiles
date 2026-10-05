@@ -3,7 +3,7 @@
   home.packages = with pkgs; [
 
     acpi arandr autorandr dunst feh i3 i3status inotify-tools kitty
-    libnotify lxappearance maim networkmanagerapplet parcellite pasystray
+    libnotify lxappearance maim networkmanagerapplet pasystray
     pavucontrol pcmanfm picom rofi scrot srandrd unclutter xautolock xdotool
     xfontsel xnee xorg.xbacklight xorg.xev xorg.xkill xsel xclip
     

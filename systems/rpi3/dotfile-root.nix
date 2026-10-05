@@ -1,4 +1,4 @@
-let 
+let
   sources = import ../../nix/sources.nix;
 in rec {
   system = "aarch64-linux";

@@ -1,13 +1,12 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, inputs, ... }:
 
 let
-sources = import ../../nix/sources.nix;
 in
 {
   imports = [
-    "${sources.nixos-hardware}/lenovo/thinkpad"
-    "${sources.nixos-hardware}/lenovo/thinkpad/p1"
-    "${sources.nixos-hardware}/common/gpu/nvidia/prime.nix"
+    "${inputs.nixos-hardware}/lenovo/thinkpad"
+    "${inputs.nixos-hardware}/lenovo/thinkpad/p1"
+    "${inputs.nixos-hardware}/common/gpu/nvidia/prime.nix"
   ];
 
   hardware.nvidia.open = false;  

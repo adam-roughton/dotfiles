@@ -1,7 +1,6 @@
-{ pkgs, lib, ... }:
+{ pkgs, lib, ... }@args:
 
 let
-  sources = import ../../nix/sources.nix;
   user = import ../../user.nix;
   username = "adamr";
   home = "/home/${username}";
@@ -110,8 +109,6 @@ in
     extraGroups = [ "wheel" "networkmanager" "docker" "wireshark" ];
     shell = "${pkgs.zsh}/bin/zsh";
   };
-  home-manager.users."${username}" = args: import ./home.nix (args // { inherit pkgs user; });
-
   services.cron.enable = true;
 
   system.stateVersion = "21.05";

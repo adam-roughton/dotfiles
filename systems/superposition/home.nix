@@ -9,8 +9,8 @@ in rec{
     ../../modules/dev.nix
     ../../modules/vscode
     ../../modules/agent-sandbox.nix
-    ../../private/systems/superposition/home.nix 
-  ];
+  ] ++ lib.optional (builtins.pathExists ../../private/systems/superposition/home.nix)
+    ../../private/systems/superposition/home.nix;
 
   programs.zsh = {
     enable = true;

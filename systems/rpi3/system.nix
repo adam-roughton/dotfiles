@@ -1,7 +1,6 @@
-{ pkgs, lib, ... }:
+{ pkgs, lib, ... }@args:
 
 let
-  sources = import ../../nix/sources.nix;
   user = import ../../user.nix;
   util = pkgs.callPackage ../../util.nix {};
   username = "adam";
@@ -82,8 +81,6 @@ in
   services.getty = {
     autologinUser = "${username}";
   };
-  home-manager.users."${username}" = args: import ./home.nix (args // { inherit pkgs user; });
-
   security.pam.loginLimits = [
     { domain = "@audio"; item = "memlock"; type = "-"; value = "unlimited"; }
     { domain = "@audio"; item = "rtprio"; type = "-"; value = "99"; }

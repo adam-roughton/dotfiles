@@ -1,8 +1,9 @@
 { pkgs, ... }:
 let
-  secretReader = pkgs.writeShellScript "secretReader.sh" ''
-  echo "\"$(pass "personal/nix/$1")\""
-  '';
-
-  readSecret = secretName: builtins.exec [ secretReader secretName ];
+  readSecret = secretName:
+    let
+      envName = "NIX_DOTFILES_SECRET_${builtins.replaceStrings [ "/" "-" ] [ "_" "_" ] secretName}";
+      value = builtins.getEnv envName;
+    in
+      if value == "" then null else value;
 in { inherit readSecret; }

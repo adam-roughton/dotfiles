@@ -1,15 +1,13 @@
-{ config, pkgs, ... }:
+{ config, pkgs, inputs, ... }:
 
 let
-sources = import ../../nix/sources.nix;
 in
 {
   imports = [
-    "${sources.nixos-hardware}/lenovo/thinkpad"
-    "${sources.nixos-hardware}/common/cpu/intel"
-    "${sources.nixos-hardware}/common/cpu/intel/kaby-lake"
-    "${sources.nixos-hardware}/common/pc/laptop/ssd"
-    "${sources.nixos-hardware}/common/pc/laptop/acpi_call.nix"
+    "${inputs.nixos-hardware}/lenovo/thinkpad"
+    "${inputs.nixos-hardware}/common/cpu/intel"
+    "${inputs.nixos-hardware}/common/cpu/intel/kaby-lake"
+    "${inputs.nixos-hardware}/common/pc/laptop"
   ];  
   
   boot.loader.systemd-boot.enable = true;
@@ -56,6 +54,7 @@ in
     enable = true;
     package = pkgs.pulseaudioFull;
   };
+  services.pipewire.enable = false;
   hardware.graphics.enable32Bit = true;
   hardware.opengl.extraPackages = [ pkgs.intel-ocl ];
 }
