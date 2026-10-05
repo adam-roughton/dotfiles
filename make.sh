@@ -6,77 +6,66 @@ set -o pipefail
 
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
-mode="$1"
-shift
+usage() {
+  echo "usage: $0 {build|vm|disk-image|firmware|switch|update|clean} SYSTEM [NIX OPTIONS...]" >&2
+  exit 1
+}
+
+flake_attr() {
+  local system_name="$1"
+  case "$system_name" in
+    superposition)
+      echo "darwinConfigurations.superposition"
+      ;;
+    rpi3|skyhook|spacemonkey)
+      echo "nixosConfigurations.$system_name"
+      ;;
+    *)
+      echo "unknown system: $system_name" >&2
+      exit 1
+      ;;
+  esac
+}
+
+build_attr() {
+  local system_name="$1"
+  local target="$2"
+  shift 2
+
+  nix build --no-link --print-out-paths \
+    "$DOTFILES_DIR#$(flake_attr "$system_name").$target" "$@"
+}
+
+mode="${1:-}"
+shift || true
 
 case "$mode" in
   "build")
-    systemName="$1"
+    system_name="${1:?system name is required}"
     shift
-
-    tmp="$(mktemp -u)"
-    nix-build --no-link \
-      --allow-unsafe-native-code-during-evaluation \
-      "$DOTFILES_DIR" \
-      -A system \
-      --argstr systemName "$systemName" \
-      -o "$tmp/result" \
-      --keep-going $* >&2
-    trap "rm '$tmp/result'" EXIT
-    drv="$(readlink "$tmp/result")"
-    echo "$drv"
+    build_attr "$system_name" "config.system.build.toplevel" "$@"
     ;;
   "vm")
-    systemName="$1"
+    system_name="${1:?system name is required}"
     shift
-
-    tmp="$(mktemp -d)"
-    trap "rm '$tmp/result'" EXIT
-    pushd $tmp
-    nix-build --no-link \
-      --allow-unsafe-native-code-during-evaluation \
-      "$DOTFILES_DIR" \
-      --argstr systemName "$systemName" \
-      -o "result" \
-      --keep-going \
-      -A vm $* >&2
-    command "./result/bin/run-$systemName-vm"
-    popd
+    vm="$(build_attr "$system_name" "config.system.build.vm" "$@")"
+    command "$vm/bin/run-$system_name-vm"
     ;;
   "disk-image")
-    systemName="$1"
+    system_name="${1:?system name is required}"
     shift
-
-    tmp="$(mktemp -d)"
-    trap "rm '$tmp/result'" EXIT
-    pushd $tmp
-    nix-build --no-link \
-      --allow-unsafe-native-code-during-evaluation \
-      "$DOTFILES_DIR" \
-      --argstr systemName "$systemName" \
-      -o "result" \
-      --keep-going \
-      -A diskImage $* >&2
+    build_attr "$system_name" "config.system.build.sdImage" "$@"
     ;;
   "firmware")
-    systemName="$1"
+    system_name="${1:?system name is required}"
     shift
 
-    if [ "$systemName" != "rpi3" ]; then
-      echo "can only update firmware for rpi3"
+    if [ "$system_name" != "rpi3" ]; then
+      echo "can only update firmware for rpi3" >&2
       exit 1
     fi
 
-    tmp="$(mktemp -d)"
-    trap "rm '$tmp/result'" EXIT
-    pushd $tmp
-    nix-build --no-link \
-      --allow-unsafe-native-code-during-evaluation \
-      "$DOTFILES_DIR" \
-      --argstr systemName "$systemName" \
-      -o "result" \
-      --keep-going \
-      -A firmware $* >&2
+    firmware="$(build_attr "$system_name" "config.system.build.firmware" "$@")"
     echo "About to update firmware. Proceed?"
     select answer in "Yes" "No"; do
       if [ "$answer" != "Yes" ]; then
@@ -88,8 +77,8 @@ case "$mode" in
       sudo mkdir /mnt
     fi
     sudo -- "$BASH" -c "mount /dev/disk/by-label/FIRMWARE /mnt; \
-      rm /mnt/*; \
-      cp result/* /mnt; \
+      rm -f /mnt/*; \
+      cp '$firmware'/* /mnt; \
       echo 'Updated FIRMWARE:'; \
       ls /mnt; \
       umount /mnt
@@ -97,21 +86,27 @@ case "$mode" in
     echo "Firmware updated. Reboot to apply changes."
     ;;
   "update")
-    niv update
+    nix flake update "$DOTFILES_DIR" "$@"
     ;;
   "switch")
-    systemName="$1"
+    system_name="${1:?system name is required}"
     shift
 
-    drv="$(./make.sh build $systemName)"
-    sudo nix-env -p /nix/var/nix/profiles/system --set "$drv"
-    NIXOS_INSTALL_BOOTLOADER=1 sudo --preserve-env=NIXOS_INSTALL_BOOTLOADER "$drv/bin/switch-to-configuration" switch
+    if [ "$system_name" = "superposition" ]; then
+      darwin-rebuild switch --flake "$DOTFILES_DIR#$system_name" "$@"
+    else
+      drv="$("$BASH" "$0" build "$system_name" "$@")"
+      sudo nix-env -p /nix/var/nix/profiles/system --set "$drv"
+      NIXOS_INSTALL_BOOTLOADER=1 sudo --preserve-env=NIXOS_INSTALL_BOOTLOADER \
+        "$drv/bin/switch-to-configuration" switch
+    fi
     ;;
   "clean")
     sudo nix-collect-garbage --delete-older-than 7d
-    nix-collect-garbage --delete-older-than 7d # clean user drv as well
-    nix store optimise --extra-experimental-features nix-command
+    nix-collect-garbage --delete-older-than 7d
+    nix store optimise
     ;;
   *)
-    exit 1
+    usage
+    ;;
 esac
