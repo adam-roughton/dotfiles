@@ -34,6 +34,17 @@
       mariadb
       postgresql
       jsonnet
+
+      (writeShellApplication {
+        name = "handover-setup";
+        runtimeInputs = [ coreutils gnused git ];
+        text = builtins.readFile ./dev/scripts/handover-setup;
+      })
+      (writeShellApplication {
+        name = "handover-sync";
+        runtimeInputs = [ coreutils gnused git ];
+        text = builtins.readFile ./dev/scripts/handover-sync;
+      })
     ];
   };
 }

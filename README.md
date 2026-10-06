@@ -146,6 +146,57 @@ Remove old Nix garbage and optimise the store:
 ./make.sh clean
 ```
 
+## Agent Handover
+
+The development module provides `handover-setup` and `handover-sync` for
+passing work between a host repository and an agent workspace.
+
+From the original host repository, create or update the read-only bare
+upstream and prepare a task workspace:
+
+```sh
+handover-setup "Improve API error handling"
+```
+
+The task ID is normalized to `improve_api_error_handling`. By default, the
+bare upstream is stored under `~/development/agent/upstream-ro` and the task
+workspace under `~/development/agent/workspaces`. Override those locations
+with:
+
+```sh
+export HANDOVER_UPSTREAM_DIR="$HOME/path/to/upstreams"
+export HANDOVER_WORKSPACES_DIR="$HOME/path/to/workspaces"
+```
+
+The setup command prints the bare repository path and the clone command to use
+inside the agent:
+
+```sh
+git clone --no-hardlinks \
+  "$HOME/development/agent/upstream-ro/dotfiles.git" \
+  "$HOME/development/agent/workspaces/improve_api_error_handling/dotfiles"
+```
+
+After the agent commits its work in that writable clone, return to the original
+host repository and fetch the result:
+
+```sh
+handover-sync "Improve API error handling"
+```
+
+This creates a bundle from the workspace repository's `HEAD` and fetches it
+into a local branch named `improve_api_error_handling`. Review it before
+publishing:
+
+```sh
+git diff main...improve_api_error_handling
+git log --oneline --decorate main..improve_api_error_handling
+```
+
+`handover-sync` discovers either a repository directly in the task workspace
+or the standard nested clone path. It does not push anything to a network
+remote.
+
 ## Direct Flake Commands
 
 The wrapper covers the common system operations. Other outputs can be used
