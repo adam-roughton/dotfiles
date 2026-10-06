@@ -90,8 +90,6 @@ loading into microsandbox:
 
 ```sh
 ./make.sh image
-msb load --input "$(./make.sh image)" --tag dotfiles-agent:latest
-msb run dotfiles-agent:latest
 ```
 
 The image supports `aarch64-linux` and `x86_64-linux`. To build a specific
@@ -148,8 +146,25 @@ Remove old Nix garbage and optimise the store:
 
 ## Agent Handover
 
-The development module provides `handover-setup` and `handover-sync` for
-passing work between a host repository and an agent workspace.
+The development module provides `handover-setup`, `handover-start`, and
+`handover-sync` for passing work between a host repository and an agent
+workspace.
+
+The microsandbox image can be built and registered with one command:
+
+```sh
+./make.sh image
+```
+
+If `dotfiles-agent:latest` is already registered, this command does nothing.
+Rebuild and replace the registered image after changing the image definition
+or toolchain with:
+
+```sh
+./make.sh image --force
+```
+
+Set `MSB_AGENT_IMAGE` to use a different local image tag.
 
 From the original host repository, create or update the read-only bare
 upstream and prepare a task workspace:
@@ -196,6 +211,54 @@ git log --oneline --decorate main..improve_api_error_handling
 `handover-sync` discovers either a repository directly in the task workspace
 or the standard nested clone path. It does not push anything to a network
 remote.
+
+To create the upstream, start a microsandbox, mount the bare repository
+read-only, mount the workspace root read-write, and attach an interactive
+shell in one step:
+
+```sh
+handover-start "Improve API error handling"
+```
+
+The default sandbox name is `dotfiles-agent-improve_api_error_handling`, the
+image is `dotfiles-agent:latest`, and the sandbox uses 4 CPUs and 8 GiB of
+memory. Override these defaults with:
+
+```sh
+export HANDOVER_IMAGE=dotfiles-agent:latest
+export HANDOVER_CPUS=4
+export HANDOVER_MEMORY=8G
+export HANDOVER_SANDBOX_PREFIX=dotfiles-agent
+```
+
+Inside the attached sandbox, clone the mounted upstream into the writable
+workspace. `handover-start` performs this setup automatically. The resulting
+repository is ready for an agent:
+
+```sh
+TASK=improve_api_error_handling
+REPO=dotfiles
+git clone --no-hardlinks \
+  "/mnt/upstream/$REPO.git" \
+  "/workspace/$TASK/$REPO"
+cd "/workspace/$TASK/$REPO"
+git switch -c "$TASK" origin/main
+git config remote.origin.pushurl /dev/null
+opencode
+```
+
+Exit the shell when finished, commit the work in the sandbox, and run
+`handover-sync` from the original host repository.
+
+When the work is no longer needed, remove the microsandbox and that task's
+workspace repository:
+
+```sh
+handover-cleanup "Improve API error handling"
+```
+
+This uses the same sandbox prefix and workspace location as `handover-start`
+and does not remove the bare upstream repository or any other task workspace.
 
 ## Direct Flake Commands
 

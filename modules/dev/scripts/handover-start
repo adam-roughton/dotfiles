@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+usage() {
+  printf 'usage: %s TASK-NAME\n' "$0" >&2
+  exit 2
+}
+
+normalize_task() {
+  local normalized
+  normalized="$(printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed -E 's/[^a-z0-9]+/_/g; s/^_+//; s/_+$//; s/_+/_/g')"
+  [ -n "$normalized" ] || {
+    echo "task name must contain at least one letter or number" >&2
+    exit 2
+  }
+  printf '%s\n' "$normalized"
+}
+
+[ "$#" -eq 1 ] || usage
+command -v msb >/dev/null 2>&1 || {
+  echo "microsandbox CLI (msb) is not installed or is not on PATH" >&2
+  exit 1
+}
+
+task_id="$(normalize_task "$1")"
+repo_root="$(git rev-parse --show-toplevel)"
+repo_name="$(basename "$repo_root")"
+upstream_root="${HANDOVER_UPSTREAM_DIR:-$HOME/development/agent/upstream-ro}"
+workspace_root="${HANDOVER_WORKSPACES_DIR:-$HOME/development/agent/workspaces}"
+bare_repo="$upstream_root/$repo_name.git"
+workspace_repo="$workspace_root/$task_id/$repo_name"
+sandbox_name="${HANDOVER_SANDBOX_PREFIX:-dotfiles-agent}-$task_id"
+image="${HANDOVER_IMAGE:-dotfiles-agent:latest}"
+
+handover-setup "$1"
+
+[ -d "$bare_repo" ] || {
+  echo "handover setup did not create the expected bare repository: $bare_repo" >&2
+  exit 1
+}
+
+msb create \
+  --name "$sandbox_name" \
+  --cpus "${HANDOVER_CPUS:-4}" \
+  --memory "${HANDOVER_MEMORY:-8G}" \
+  --volume "$bare_repo:/mnt/upstream/$repo_name.git:ro" \
+  --volume "$workspace_root:/workspace" \
+  "$image"
+
+if [ ! -e "$workspace_repo/.git" ]; then
+  msb exec --no-tty "$sandbox_name" -- \
+    git clone --no-hardlinks \
+      "/mnt/upstream/$repo_name.git" \
+      "/workspace/$task_id/$repo_name"
+  msb exec --no-tty "$sandbox_name" -- \
+    git -C "/workspace/$task_id/$repo_name" switch -c "$task_id" origin/main
+  msb exec --no-tty "$sandbox_name" -- \
+    git -C "/workspace/$task_id/$repo_name" config remote.origin.pushurl /dev/null
+fi
+
+echo "Sandbox started: $sandbox_name"
+echo "Workspace: /workspace/$task_id/$repo_name"
+echo
+echo "Attaching an interactive shell. Exit the shell to leave the sandbox running."
+
+exec msb exec --tty "$sandbox_name" -- zsh

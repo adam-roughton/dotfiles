@@ -7,7 +7,7 @@ set -o pipefail
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
 usage() {
-  echo "usage: $0 {build|image|vm|disk-image|firmware|switch|update|clean} [SYSTEM] [NIX OPTIONS...]" >&2
+  echo "usage: $0 {build|image|vm|disk-image|firmware|switch|update|clean} [SYSTEM] [OPTIONS...]" >&2
   exit 1
 }
 
@@ -56,8 +56,36 @@ shift || true
 
 case "$mode" in
   "image")
-    nix build --no-link --print-out-paths \
-      "$DOTFILES_DIR#packages.$(host_system).agent-image" "$@"
+    force=false
+    if [ "${1:-}" = "--force" ]; then
+      force=true
+      shift
+    fi
+    image_tag="${MSB_AGENT_IMAGE:-dotfiles-agent:latest}"
+    command -v msb >/dev/null 2>&1 || {
+      echo "microsandbox CLI (msb) is not installed or is not on PATH" >&2
+      exit 1
+    }
+    image_list="$(msb images -q)"
+    image_exists=false
+    while IFS= read -r image_ref; do
+      if [ "$image_ref" = "$image_tag" ]; then
+        image_exists=true
+        break
+      fi
+    done <<< "$image_list"
+    if [ "$image_exists" = true ] && [ "$force" = false ]; then
+      echo "Microsandbox image already registered: $image_tag" >&2
+      echo "Use '$0 image --force' to rebuild and replace it." >&2
+      exit 0
+    fi
+    image_path="$(nix build --no-link --print-out-paths \
+      "$DOTFILES_DIR#packages.$(host_system).agent-image" "$@")"
+    if [ "$image_exists" = true ]; then
+      msb rmi --force "$image_tag"
+    fi
+    msb load --input "$image_path" --tag "$image_tag"
+    echo "Registered microsandbox image: $image_tag" >&2
     ;;
   "build")
     system_name="${1:?system name is required}"
