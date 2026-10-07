@@ -36,10 +36,13 @@ task_workspace="$workspace_root/$task_id"
 
 mkdir -p "$upstream_root"
 if [ -e "$bare_repo" ]; then
-  [ -d "$bare_repo" ] && git -C "$bare_repo" rev-parse --is-bare-repository >/dev/null 2>&1 || {
+  if [ ! -d "$bare_repo" ]; then
     echo "upstream path exists but is not a bare Git repository: $bare_repo" >&2
     exit 1
-  }
+  elif [ "$(git -C "$bare_repo" rev-parse --is-bare-repository 2>/dev/null)" != "true" ]; then
+    echo "upstream path exists but is not a bare Git repository: $bare_repo" >&2
+    exit 1
+  fi
 else
   git init --bare "$bare_repo" >/dev/null
 fi

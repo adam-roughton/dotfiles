@@ -8,7 +8,7 @@ in rec{
     ../../modules/fonts
     ../../modules/dev.nix
     ../../modules/vscode
-    ../../modules/agent-sandbox.nix
+    ../../modules/agent-sandbox
   ] ++ lib.optional (builtins.pathExists ../../private/systems/superposition/home.nix)
     ../../private/systems/superposition/home.nix;
 
@@ -52,8 +52,8 @@ in rec{
 
   programs.home-manager.enable = true;
   
-  programs.agent-sandbox = {
-    enable = true;
+  dotfiles.agentSandbox = {
+    enabled = true;
   };
 
 
