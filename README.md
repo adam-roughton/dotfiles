@@ -150,17 +150,22 @@ The `agent-sandbox` module provides one command for the complete microsandbox
 lifecycle, with `ca` as an alias in both Bash and Zsh:
 
 ```text
-code-agent {setup|start|resume|stop|status|sync|cleanup} TASK [--discard|--dry-run]
+code-agent {setup|start|resume|stop|status|sync|cleanup} [TASK] [--discard] [--dry-run]
 ```
 
 The flags are valid only for `cleanup`. Run host commands from the original
-host Git checkout and quote the task text. Use the same full task text for
-every command, not just its normalized ID.
+host Git checkout. Without a task name, the current branch identifies the task.
+On `main`, `setup` and `start` prompt for a task branch; other commands require
+switching to the task branch or passing a name explicitly.
 
 **Before switching:** sync any work in old handover workspaces using the old
 commands. The `handover-*` commands are removed from installation. Old
 workspaces are left untouched, and the new namespaced layout does not
 automatically migrate them.
+
+Tasks created by the earlier `code-agent` workflow also use the old identity
+and result-branch layout. Sync and clean those tasks with the previous command
+version before activating this branch-based workflow; their files are not migrated.
 
 ### Image and Configuration
 
@@ -208,26 +213,35 @@ Keep paths and the sandbox prefix unchanged until existing tasks are cleaned
 up. CPU, memory, and image changes apply to newly created sandboxes, not
 existing ones.
 
-Task IDs are lower snake case: `Improve API error handling` becomes
-`improve_api_error_handling`. Resource names are repo-scoped using a hash of
-the canonical host checkout path and a hash of the full original task text.
-Tasks that normalize to the same ID therefore remain distinct, as do separate
-host checkouts. The local result branch is
-`code-agent/<task-id>-<task-hash>`; use `status` to inspect the resolved paths.
+Explicit task names are normalized to lower snake case: `Improve API error
+handling` selects branch `improve_api_error_handling`. Names that normalize to
+the same branch identify the same task. Without a name, the current branch is
+used unchanged, including slashes such as `feature/api`. For such branches,
+switch to the branch and omit the task argument in subsequent commands.
+Resource names use hashes of the canonical host checkout path and task branch,
+so separate checkouts and distinct branch names remain isolated.
 
 ### Setup and Start
 
 Prepare the read-only bare upstream, task metadata, and writable clone:
 
 ```sh
-code-agent setup "Improve API error handling"
-code-agent start "Improve API error handling"
+ca start
+# Or create/select a named branch and start its task:
+ca start "Improve API error handling"
 ```
 
 `start` also performs setup for a new task, so a separate `setup` is optional.
-The initial branch is the current host branch, not necessarily `main`. No
-`main` branch is required; a detached host `HEAD` is rejected. Commit or stash
-host changes first. Reusing a task keeps its original source snapshot.
+With an explicit name, `setup` and `start` switch to its normalized branch if
+it exists, or create it from the current branch if it does not. On `main`, an
+omitted name prompts for a branch instead of handing over `main` itself.
+No `main` branch is required; detached host `HEAD` is rejected.
+
+`setup`, `start`, `resume`, and `sync` require a clean host working tree and
+index, including no untracked files. Ignored host files are allowed and are
+not transferred. The command never auto-stashes or commits. Commit or stash
+changes first. Reusing a task keeps its original agent clone and source snapshot;
+new host commits are not automatically applied inside an existing clone.
 
 The clone is created on the host with `git clone --no-hardlinks`. Only that
 task's data directory is mounted read-write at `/workspace`, with the clone
@@ -256,9 +270,9 @@ changes or the agent's conversation state.
 From the host checkout:
 
 ```sh
-code-agent status "Improve API error handling"
-code-agent stop "Improve API error handling"
-code-agent resume "Improve API error handling"
+ca status
+ca stop
+ca resume
 ```
 
 `status` outputs the task's paths and `msb ls`. `stop` stops the sandbox but
@@ -271,22 +285,27 @@ existing sandbox, so it can be used to return to a task.
 After committing the work, sync from the original host checkout:
 
 ```sh
-code-agent sync "Improve API error handling"
+ca sync
 ```
 
-`sync` rejects a dirty workspace tree, bundles the clone's `HEAD`, and fetches
-it into the local result branch `code-agent/<task-id>-<task-hash>`. The branch
-update is nonforced: divergent existing results are not overwritten. Nothing
-is published to a network remote. Git LFS objects and submodule material are
-not automatically transferred; handle those separately if the task needs them.
+`sync` rejects a dirty host or agent tree and requires the agent to be on the
+task branch. It bundles committed agent history and fetches it into an incoming
+ref, then fast-forwards the corresponding host task branch. If that branch is
+checked out here, the index and working files update too. If another branch is
+checked out, that checkout stays unchanged. A branch checked out in another
+worktree cannot be updated this way.
 
-Review the result against the host branch before merging or publishing. Replace
-`<task-hash>` below with the actual hash for this task:
+If the histories diverge, sync stops without modifying the task branch and
+prints the incoming ref where the agent commits were preserved. Merge or rebase
+manually; no force update or automatic conflict resolution is performed.
+Incoming refs are retained as recovery points. Nothing is published to a network
+remote. Git LFS objects and submodule material are not automatically transferred.
+
+Review the task branch against `main` before merging or publishing:
 
 ```sh
-RESULT_BRANCH='code-agent/improve_api_error_handling-<task-hash>'
-git diff HEAD..."$RESULT_BRANCH"
-git log --oneline --decorate HEAD.."$RESULT_BRANCH"
+git diff main...HEAD
+git log --oneline --decorate main..HEAD
 ```
 
 The agent's `/root` state is not transferred by `sync`.
@@ -297,8 +316,8 @@ Inspect the removal targets without changing anything, then remove the task
 when its work has been safely synced:
 
 ```sh
-code-agent cleanup "Improve API error handling" --dry-run
-code-agent cleanup "Improve API error handling"
+ca cleanup --dry-run
+ca cleanup
 ```
 
 Normal cleanup stops the sandbox first. It refuses removal if the task has
@@ -309,7 +328,7 @@ If it refuses, preserve
 the work or explicitly choose to discard it:
 
 ```sh
-code-agent cleanup "Improve API error handling" --discard
+ca cleanup --discard
 ```
 
 `--discard` bypasses these data-loss protections. `--dry-run` only shows targets

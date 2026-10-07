@@ -12,15 +12,21 @@ memory=@memory@
 
 die() { printf '%s\n' "$*" >&2; exit 1; }
 usage() {
-  printf '%s\n' 'usage: code-agent {setup|start|resume|stop|status|sync|cleanup} TASK [--discard] [--dry-run]' '       code-agent --print-image'
+  printf '%s\n' 'usage: code-agent {setup|start|resume|stop|status|sync|cleanup} [TASK] [--discard] [--dry-run]' '       code-agent --print-image'
 }
 
 if [ "${1:-}" = --help ] || [ "${1:-}" = -h ]; then usage; exit 0; fi
 if [ "$#" -eq 1 ] && [ "$1" = --print-image ]; then printf '%s\n' "$image"; exit 0; fi
-[ "$#" -ge 2 ] || { usage >&2; exit 2; }
+[ "$#" -ge 1 ] || { usage >&2; exit 2; }
 action="$1"
-task="$2"
-shift 2
+shift
+task=''
+explicit_task=false
+if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then
+  task="$1"
+  explicit_task=true
+  shift
+fi
 case "$action" in setup|start|resume|stop|status|sync|cleanup) ;; *) usage >&2; exit 2 ;; esac
 discard=false
 dry_run=false
@@ -33,18 +39,42 @@ for option in "$@"; do
   esac
 done
 
-task_id="$(printf '%s' "$task" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/_/g; s/^_+//; s/_+$//')"
-[ -n "$task_id" ] || die 'task name must contain at least one ASCII letter or number'
-# Keep resource names bounded, while retaining the original task's identity.
-task_id="${task_id:0:40}"
-task_hash="$(printf '%s' "$task" | sha256sum)"
-task_hash="${task_hash:0:12}"
 repo_root="$(git rev-parse --show-toplevel)"
 repo_root="$(realpath -e "$repo_root")"
+host_branch="$(git -C "$repo_root" symbolic-ref --quiet HEAD)" || die 'host repository is in detached HEAD state'
+host_branch="${host_branch#refs/heads/}"
+require_host_clean() {
+  local status
+  status="$(git -C "$repo_root" status --porcelain --untracked-files=all)" || die 'cannot inspect host repository'
+  [ -z "$status" ] || die 'commit or stash host changes before handover or sync'
+}
+case "$action" in setup|start|resume|sync) require_host_clean ;; esac
+if [ "$explicit_task" = false ]; then
+  task="$host_branch"
+  if [ "$task" = main ]; then
+    case "$action" in
+      setup|start)
+        printf 'On main. Enter a new task branch name: ' >&2
+        IFS= read -r task || die 'no branch name provided; pass a task name explicitly'
+        explicit_task=true
+        ;;
+      *) die 'on main; switch to the task branch or provide its name' ;;
+    esac
+  fi
+fi
+task_id="$(printf '%s' "$task" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/_/g; s/^_+//; s/_+$//')"
+[ -n "$task_id" ] || die 'task name must contain at least one ASCII letter or number'
+if [ "$explicit_task" = true ]; then branch="$task_id"; else branch="$task"; fi
+[ "$branch" != main ] || die 'main cannot be used as a task branch; choose another name'
+git check-ref-format --branch "$branch" >/dev/null || die 'invalid task branch'
+task="$branch"
+# Bound resource names, but retain the full branch name as the task identity.
+task_id="${task_id:0:40}"
+task_hash="$(printf '%s' "$branch" | sha256sum)"
+task_hash="${task_hash:0:12}"
 repo_hash="$(printf '%s' "$repo_root" | sha256sum)"
 repo_hash="${repo_hash:0:12}"
 repo_id="repo-$repo_hash"
-branch="code-agent/$task_id-$task_hash"
 workspace_root="$(realpath -m "$workspace_directory")"
 upstream_root="$(realpath -m "$upstream_directory")"
 task_dir="$workspace_root/code-agent/$repo_id/$task_id-$task_hash"
@@ -130,11 +160,29 @@ if [ "$action" != setup ] && [ "$action" != sync ]; then
   command -v msb >/dev/null 2>&1 || die 'microsandbox CLI (msb) is not on PATH'
 fi
 
+if [ "$action" = setup ] || [ "$action" = start ] || [ "$action" = sync ]; then
+  # Serialize host branch selection, sync, and upstream publication across tasks.
+  mkdir -p "$(dirname "$bare_repo")"
+  [ "$(realpath -m "$upstream_lock")" = "$upstream_lock" ] || die 'refusing symlinked upstream lock'
+  attempts=0
+  until mkdir "$upstream_lock" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    [ "$attempts" -lt 30 ] || die "upstream is locked: $upstream_lock (remove only after confirming no command is running)"
+    sleep 1
+  done
+  upstream_locked=true
+  check_paths
+fi
+
 if [ "$action" = setup ] || [ "$action" = start ]; then
+  require_host_clean
+  if git -C "$repo_root" show-ref --verify --quiet "refs/heads/$branch"; then
+    git -C "$repo_root" switch --no-overwrite-ignore "$branch"
+  else
+    git -C "$repo_root" switch --no-overwrite-ignore -c "$branch"
+  fi
   if [ ! -e "$metadata" ]; then
-    source_branch="$(git -C "$repo_root" symbolic-ref --quiet --short HEAD)" || die 'host repository is in detached HEAD state'
-    host_status="$(git -C "$repo_root" status --porcelain --untracked-files=all)" || die 'cannot inspect host repository'
-    [ -z "$host_status" ] || die 'commit or stash host changes before setup'
+    source_branch="$branch"
     source_commit="$(git -C "$repo_root" rev-parse HEAD)"
     [ ! -e "$clone" ] || die 'unowned workspace exists; refusing to overwrite it'
     scratch="$(mktemp -d "$task_dir/initialization.XXXXXXXX")"
@@ -150,15 +198,6 @@ if [ "$action" = setup ] || [ "$action" = start ]; then
   fi
   source_commit="$(git config --file "$metadata" --get task.sourceCommit)"
   mkdir -p "$(dirname "$bare_repo")" "$data_dir"
-  [ "$(realpath -m "$upstream_lock")" = "$upstream_lock" ] || die 'refusing symlinked upstream lock'
-  attempts=0
-  until mkdir "$upstream_lock" 2>/dev/null; do
-    attempts=$((attempts + 1))
-    [ "$attempts" -lt 30 ] || die "upstream is locked: $upstream_lock (remove only after confirming no command is running)"
-    sleep 1
-  done
-  upstream_locked=true
-  check_paths
   if [ ! -e "$bare_repo" ]; then git init --bare "$bare_repo" >/dev/null; fi
   [ "$(git -C "$bare_repo" rev-parse --is-bare-repository)" = true ] || die 'upstream is not a bare repository'
   # Immutable snapshot refs accept rebased source branches without force pushes.
@@ -223,12 +262,25 @@ case "$action" in
   sync)
     require_clone
     require_clean
-    [ "$(git -C "$clone" symbolic-ref --quiet --short HEAD)" = "$branch" ] || die 'workspace is not on the expected task branch'
+    [ "$(git -C "$clone" symbolic-ref --quiet HEAD)" = "refs/heads/$branch" ] || die 'workspace is not on the expected task branch'
     scratch="$(mktemp -d "${TMPDIR:-/tmp}/code-agent.XXXXXXXX")"
     git -C "$clone" bundle create "$scratch/result.bundle" HEAD
     git -C "$repo_root" bundle verify "$scratch/result.bundle" >/dev/null
-    git -C "$repo_root" fetch "$scratch/result.bundle" "HEAD:refs/heads/$branch"
-    printf 'Fetched committed work into %s; review before merging or publishing.\n' "$branch"
+    incoming_commit="$(git -C "$clone" rev-parse HEAD)"
+    incoming_ref="refs/code-agent/incoming/$task_hash/$incoming_commit"
+    git -C "$repo_root" fetch "$scratch/result.bundle" "HEAD:$incoming_ref"
+    if git -C "$repo_root" show-ref --verify --quiet "refs/heads/$branch"; then
+      git -C "$repo_root" merge-base --is-ancestor "refs/heads/$branch" "$incoming_ref" || die "host branch cannot fast-forward; agent work retained at $incoming_ref. Merge or rebase manually"
+    fi
+    require_host_clean
+    if [ "$(git -C "$repo_root" symbolic-ref --quiet HEAD)" = "refs/heads/$branch" ]; then
+      git -C "$repo_root" merge --ff-only --no-squash --no-overwrite-ignore "$incoming_ref"
+    else
+      # Git refuses updates to a branch checked out in another worktree.
+      git -C "$repo_root" fetch "$scratch/result.bundle" "HEAD:refs/heads/$branch"
+    fi
+    [ "$(git -C "$repo_root" rev-parse "refs/heads/$branch")" = "$incoming_commit" ] || die 'host branch did not reach the agent commit; inspect the incoming ref'
+    printf 'Fast-forwarded host branch %s; review before merging into main or publishing.\n' "$branch"
     ;;
   cleanup)
     if [ "$dry_run" = true ]; then
