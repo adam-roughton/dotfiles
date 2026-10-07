@@ -12,6 +12,10 @@ if [ "${FAKE_MSB_FAIL:-}" = "$command" ]; then
 fi
 
 case "$command" in
+  images)
+    [ "$#" = 1 ] && [ "$1" = -q ] || exit 2
+    printf '%s\n' "${FAKE_MSB_IMAGE:-dotfiles-agent:latest}"
+    ;;
   ls)
     for entry in "$FAKE_MSB_STATE"/*; do
       [ -f "$entry" ] || continue

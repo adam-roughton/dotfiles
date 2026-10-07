@@ -172,20 +172,41 @@ Build and register the local microsandbox image:
 
 If the tag is already registered, this does nothing. Rebuild and replace it
 after changing the image definition or toolchain with `./make.sh image --force`.
-`make.sh` and `code-agent` both use `CODE_AGENT_IMAGE` for the image tag.
+Configure the command through `dotfiles.agentSandbox` in your `home.nix`:
 
-| Environment variable | Default |
+```nix
+dotfiles.agentSandbox = {
+  enabled = true;
+  workspaceDirectory = "${config.home.homeDirectory}/development/agent/workspaces";
+  upstreamDirectory = "${config.home.homeDirectory}/development/agent/upstream-ro";
+  sandboxPrefix = "code-agent";
+  image = "dotfiles-agent:latest";
+  cpus = 4;
+  memory = "8G";
+};
+```
+
+Add `config` to your `home.nix` module arguments if using it in these paths.
+All settings except `enabled` are optional and have these defaults:
+
+| Option | Default |
 | --- | --- |
-| `CODE_AGENT_IMAGE` | `dotfiles-agent:latest` |
-| `CODE_AGENT_UPSTREAM_DIR` | `~/development/agent/upstream-ro` |
-| `CODE_AGENT_WORKSPACES_DIR` | `~/development/agent/workspaces` |
-| `CODE_AGENT_SANDBOX_PREFIX` | `code-agent` |
-| `CODE_AGENT_CPUS` | `4` |
-| `CODE_AGENT_MEMORY` | `8G` |
+| `image` | `dotfiles-agent:latest` |
+| `upstreamDirectory` | `<homeDirectory>/development/agent/upstream-ro` |
+| `workspaceDirectory` | `<homeDirectory>/development/agent/workspaces` |
+| `sandboxPrefix` | `code-agent` |
+| `cpus` | `4` |
+| `memory` | `8G` |
 
-For example, set `export CODE_AGENT_IMAGE=my-agent:latest` before building
-the image and starting the sandbox. Keep configuration overrides consistent
-throughout a task's lifecycle.
+Activate your Home Manager configuration before building the image.
+`make.sh image` reads the configured tag from `code-agent --print-image`.
+Settings are baked into the installed command; environment variables do not
+override them. Paths must be absolute, CPUs must be positive, and memory uses
+microsandbox size syntax such as `8G` or `512M`.
+
+Keep paths and the sandbox prefix unchanged until existing tasks are cleaned
+up. CPU, memory, and image changes apply to newly created sandboxes, not
+existing ones.
 
 Task IDs are lower snake case: `Improve API error handling` becomes
 `improve_api_error_handling`. Resource names are repo-scoped using a hash of

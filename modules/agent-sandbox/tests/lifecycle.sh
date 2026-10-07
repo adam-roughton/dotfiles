@@ -3,7 +3,7 @@ set -euo pipefail
 
 TEST_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 SELF="$TEST_DIR/lifecycle.sh"
-SCRIPT="$(cd -- "$TEST_DIR/../scripts" && pwd -P)/code-agent"
+TEMPLATE="$(cd -- "$TEST_DIR/../scripts" && pwd -P)/code-agent"
 
 fail() { printf 'FAIL: %s\n%s\n' "$*" "${OUTPUT:-}" >&2; exit 1; }
 equal() { [ "$1" = "$2" ] || fail "expected [$2], got [$1]"; }
@@ -214,7 +214,7 @@ host_rejection() {
     untracked_host) printf 'untracked\n' > "$HOST/untracked"; reject 'commit or stash host changes' setup rejected ;;
   esac
   equal "$(count_command create)" 0
-  local states=("$CODE_AGENT_WORKSPACES_DIR"/**/state)
+  local states=("$CASE/workspaces"/**/state)
   equal "${#states[@]}" 0
 }
 
@@ -525,6 +525,26 @@ interactive_lock() {
   equal "$(count_command create)" 1
 }
 
+configured_settings() {
+  # Ambient variables must not override the packaged configuration.
+  export CODE_AGENT_WORKSPACES_DIR=/wrong CODE_AGENT_UPSTREAM_DIR=/wrong
+  export CODE_AGENT_SANDBOX_PREFIX=wrong CODE_AGENT_CPUS=99 CODE_AGENT_MEMORY=99G
+  export CODE_AGENT_IMAGE=wrong:latest
+  OUTPUT="$(bash "$SCRIPT" --print-image)"
+  equal "$OUTPUT" 'custom-agent:configured'
+  OUTPUT="$(FAKE_MSB_IMAGE=custom-agent:configured bash "$TEST_DIR/../../../make.sh" image 2>&1)" || fail 'image build integration failed'
+  contains "$OUTPUT" 'Microsandbox image already registered: custom-agent:configured'
+  logged images -q
+  setup configured
+  contains "$CLONE" "$CASE/workspaces with ' quotes/"
+  contains "$UPSTREAM" "$CASE/upstream with spaces/"
+  contains "$SANDBOX" custom-prefix-
+  ok start "$TASK"
+  logged create --name "$SANDBOX" --cpus 2 --memory 512M \
+    --volume "$UPSTREAM:/mnt/upstream.git:ro" --volume "$DATA:/workspace" custom-agent:configured
+  ok cleanup "$TASK"
+}
+
 if [ "${1:-}" = --case ]; then
   CASE_NAME="$2"
   CASE="$3"
@@ -532,10 +552,20 @@ if [ "${1:-}" = --case ]; then
   mkdir -p "$CASE/bin" "$CASE/msb-state" "$CASE/home" "$CASE/tmp"
   export HOME="$CASE/home" TMPDIR="$CASE/tmp" GIT_CONFIG_NOSYSTEM=1
   export GIT_CONFIG_GLOBAL="$CASE/gitconfig"
-  export CODE_AGENT_WORKSPACES_DIR="$CASE/workspaces"
-  export CODE_AGENT_UPSTREAM_DIR="$CASE/upstream"
-  export CODE_AGENT_SANDBOX_PREFIX=code-agent CODE_AGENT_CPUS=4 CODE_AGENT_MEMORY=8G
-  export CODE_AGENT_IMAGE=dotfiles-agent:latest
+  # Render the same shell-escaped settings that Home Manager bakes into the command.
+  SCRIPT="$CASE/bin/code-agent"
+  template="$(< "$TEMPLATE")"
+  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory)
+  values=("$CASE/workspaces" "$CASE/upstream" code-agent dotfiles-agent:latest 4 8G)
+  if [ "$CASE_NAME" = configured_settings ]; then
+    values=("$CASE/workspaces with ' quotes" "$CASE/upstream with spaces" custom-prefix custom-agent:configured 2 512M)
+  fi
+  for index in "${!keys[@]}"; do
+    printf -v value '%q' "${values[$index]}"
+    template="${template//\@${keys[$index]}\@/$value}"
+  done
+  printf '%s\n' "$template" > "$SCRIPT"
+  chmod +x "$SCRIPT"
   export FAKE_MSB_STATE="$CASE/msb-state" FAKE_MSB_LOG="$CASE/msb.log"
   unset FAKE_MSB_FAIL FAKE_MSB_NO_TRANSITION FAKE_MSB_EXEC_LOCK FAKE_MSB_EXEC_SCRIPT FAKE_MSB_EXEC_TASK
   : > "$FAKE_MSB_LOG"
@@ -565,7 +595,7 @@ tests=(roundtrip reuse mount_isolation repo_identity task_identity main_task reb
   symlink_parent symlink_clone symlink_git dry_run partial_initialization
   checked_out_destination no_main lock_refusal wrong_branch paused_lifecycle
   inspect_failure start_failure resume_failure transition_verification reflog_cleanup
-  stash_cleanup annotated_tag_cleanup signed_push concurrent_setup interactive_lock)
+  stash_cleanup annotated_tag_cleanup signed_push concurrent_setup interactive_lock configured_settings)
 passed=0
 failed=0
 for test in "${tests[@]}"; do

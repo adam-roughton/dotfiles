@@ -3,12 +3,20 @@
 set -euo pipefail
 export LC_ALL=C
 
+workspace_directory=@workspaceDirectory@
+upstream_directory=@upstreamDirectory@
+sandbox_prefix=@sandboxPrefix@
+image=@image@
+cpus=@cpus@
+memory=@memory@
+
 die() { printf '%s\n' "$*" >&2; exit 1; }
 usage() {
-  printf '%s\n' 'usage: code-agent {setup|start|resume|stop|status|sync|cleanup} TASK [--discard] [--dry-run]'
+  printf '%s\n' 'usage: code-agent {setup|start|resume|stop|status|sync|cleanup} TASK [--discard] [--dry-run]' '       code-agent --print-image'
 }
 
 if [ "${1:-}" = --help ] || [ "${1:-}" = -h ]; then usage; exit 0; fi
+if [ "$#" -eq 1 ] && [ "$1" = --print-image ]; then printf '%s\n' "$image"; exit 0; fi
 [ "$#" -ge 2 ] || { usage >&2; exit 2; }
 action="$1"
 task="$2"
@@ -37,14 +45,14 @@ repo_hash="$(printf '%s' "$repo_root" | sha256sum)"
 repo_hash="${repo_hash:0:12}"
 repo_id="repo-$repo_hash"
 branch="code-agent/$task_id-$task_hash"
-workspace_root="$(realpath -m "${CODE_AGENT_WORKSPACES_DIR:-$HOME/development/agent/workspaces}")"
-upstream_root="$(realpath -m "${CODE_AGENT_UPSTREAM_DIR:-$HOME/development/agent/upstream-ro}")"
+workspace_root="$(realpath -m "$workspace_directory")"
+upstream_root="$(realpath -m "$upstream_directory")"
 task_dir="$workspace_root/code-agent/$repo_id/$task_id-$task_hash"
 data_dir="$task_dir/data"
 clone="$data_dir/repo"
 metadata="$task_dir/state"
 bare_repo="$upstream_root/code-agent/$repo_id.git"
-sandbox="${CODE_AGENT_SANDBOX_PREFIX:-code-agent}-$repo_hash-$task_id-$task_hash"
+sandbox="$sandbox_prefix-$repo_hash-$task_id-$task_hash"
 [[ "$sandbox" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || die 'invalid sandbox prefix'
 [[ "$repo_root$workspace_root$upstream_root" != *$'\n'* ]] || die 'paths containing newlines are unsupported'
 [[ "$data_dir$bare_repo" != *:* ]] || die 'volume paths containing colons are unsupported'
@@ -195,10 +203,10 @@ case "$action" in
     elif [ "$action" = resume ]; then
       die 'sandbox is absent; use code-agent start to recreate it'
     else
-      msb create --name "$sandbox" --cpus "${CODE_AGENT_CPUS:-4}" \
-        --memory "${CODE_AGENT_MEMORY:-8G}" \
+      msb create --name "$sandbox" --cpus "$cpus" \
+        --memory "$memory" \
         --volume "$bare_repo:/mnt/upstream.git:ro" \
-        --volume "$data_dir:/workspace" "${CODE_AGENT_IMAGE:-dotfiles-agent:latest}"
+        --volume "$data_dir:/workspace" "$image"
     fi
     [ "$(sandbox_status)" = Running ] || die 'sandbox did not start; retry later'
     printf '%s\n' 'Entering the repository. Launch your agent manually; commit before sync. Exiting leaves the sandbox running.'

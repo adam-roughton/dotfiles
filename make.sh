@@ -80,7 +80,11 @@ case "$mode" in
       force=true
       shift
     fi
-    image_tag="${CODE_AGENT_IMAGE:-dotfiles-agent:latest}"
+    command -v code-agent >/dev/null 2>&1 || {
+      echo "code-agent is not installed; activate the agent-sandbox Home Manager module first" >&2
+      exit 1
+    }
+    image_tag="$(code-agent --print-image)"
     command -v msb >/dev/null 2>&1 || {
       echo "microsandbox CLI (msb) is not installed or is not on PATH" >&2
       exit 1
