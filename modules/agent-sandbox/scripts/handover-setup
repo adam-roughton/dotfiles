@@ -54,9 +54,11 @@ git -C "$repo_root" show-ref --verify --quiet refs/heads/main || {
   exit 1
 }
 
-git -C "$repo_root" push "$bare_repo" \
-  "HEAD:refs/heads/$active_branch" \
-  "refs/heads/main:refs/heads/main"
+push_refs=("refs/heads/$active_branch:refs/heads/$active_branch")
+if [ "$active_branch" != "main" ]; then
+  push_refs+=("refs/heads/main:refs/heads/main")
+fi
+git -C "$repo_root" push "$bare_repo" "${push_refs[@]}"
 
 mkdir -p "$task_workspace"
 

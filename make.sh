@@ -27,7 +27,26 @@ flake_attr() {
   esac
 }
 
-host_system() {
+target_system() {
+  local system_name="$1"
+  case "$system_name" in
+    superposition)
+      echo "aarch64-darwin"
+      ;;
+    rpi3)
+      echo "aarch64-linux"
+      ;;
+    skyhook|spacemonkey)
+      echo "x86_64-linux"
+      ;;
+    *)
+      echo "unknown system: $system_name" >&2
+      exit 1
+      ;;
+  esac
+}
+
+agent_system() {
   case "$(uname -m)" in
     aarch64|arm64)
       echo "aarch64-linux"
@@ -47,7 +66,7 @@ build_attr() {
   local target="$2"
   shift 2
 
-  nix build --no-link --print-out-paths \
+  nix build --system "$(target_system "$system_name")" --no-link --print-out-paths \
     "$DOTFILES_DIR#$(flake_attr "$system_name").$target" "$@"
 }
 
@@ -79,8 +98,9 @@ case "$mode" in
       echo "Use '$0 image --force' to rebuild and replace it." >&2
       exit 0
     fi
-    image_path="$(nix build --no-link --print-out-paths \
-      "$DOTFILES_DIR#packages.$(host_system).agent-image" "$@")"
+    image_system="$(agent_system)"
+    image_path="$(nix build --system "$image_system" --no-link --print-out-paths \
+      "$DOTFILES_DIR#packages.$image_system.agent-image" "$@")"
     if [ "$image_exists" = true ]; then
       msb rmi --force "$image_tag"
     fi
