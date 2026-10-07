@@ -70,6 +70,7 @@ in {
     ]; 
 
     programs.bash.enable = true;
+    programs.bash.shellAliases.ca = "code-agent";
     programs.zsh = {
       enable = true;
       enableCompletion = true;
@@ -84,6 +85,7 @@ in {
         share = true;
       };
       shellAliases = {
+        "ca" = "code-agent";
         "ls" = "eza";
         ".." = "cd ..";
         "..." = "cd ../..";

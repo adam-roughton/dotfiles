@@ -144,121 +144,166 @@ Remove old Nix garbage and optimise the store:
 ./make.sh clean
 ```
 
-## Agent Handover
+## Code Agent
 
-The development module provides `handover-setup`, `handover-start`, and
-`handover-sync` for passing work between a host repository and an agent
-workspace.
+The `agent-sandbox` module provides one command for the complete microsandbox
+lifecycle, with `ca` as an alias in both Bash and Zsh:
 
-The microsandbox image can be built and registered with one command:
+```text
+code-agent {setup|start|resume|stop|status|sync|cleanup} TASK [--discard|--dry-run]
+```
+
+The flags are valid only for `cleanup`. Run host commands from the original
+host Git checkout and quote the task text. Use the same full task text for
+every command, not just its normalized ID.
+
+**Before switching:** sync any work in old handover workspaces using the old
+commands. The `handover-*` commands are removed from installation. Old
+workspaces are left untouched, and the new namespaced layout does not
+automatically migrate them.
+
+### Image and Configuration
+
+Build and register the local microsandbox image:
 
 ```sh
 ./make.sh image
 ```
 
-If `dotfiles-agent:latest` is already registered, this command does nothing.
-Rebuild and replace the registered image after changing the image definition
-or toolchain with:
+If the tag is already registered, this does nothing. Rebuild and replace it
+after changing the image definition or toolchain with `./make.sh image --force`.
+`make.sh` and `code-agent` both use `CODE_AGENT_IMAGE` for the image tag.
+
+| Environment variable | Default |
+| --- | --- |
+| `CODE_AGENT_IMAGE` | `dotfiles-agent:latest` |
+| `CODE_AGENT_UPSTREAM_DIR` | `~/development/agent/upstream-ro` |
+| `CODE_AGENT_WORKSPACES_DIR` | `~/development/agent/workspaces` |
+| `CODE_AGENT_SANDBOX_PREFIX` | `code-agent` |
+| `CODE_AGENT_CPUS` | `4` |
+| `CODE_AGENT_MEMORY` | `8G` |
+
+For example, set `export CODE_AGENT_IMAGE=my-agent:latest` before building
+the image and starting the sandbox. Keep configuration overrides consistent
+throughout a task's lifecycle.
+
+Task IDs are lower snake case: `Improve API error handling` becomes
+`improve_api_error_handling`. Resource names are repo-scoped using a hash of
+the canonical host checkout path and a hash of the full original task text.
+Tasks that normalize to the same ID therefore remain distinct, as do separate
+host checkouts. The local result branch is
+`code-agent/<task-id>-<task-hash>`; use `status` to inspect the resolved paths.
+
+### Setup and Start
+
+Prepare the read-only bare upstream, task metadata, and writable clone:
 
 ```sh
-./make.sh image --force
+code-agent setup "Improve API error handling"
+code-agent start "Improve API error handling"
 ```
 
-Set `MSB_AGENT_IMAGE` to use a different local image tag.
+`start` also performs setup for a new task, so a separate `setup` is optional.
+The initial branch is the current host branch, not necessarily `main`. No
+`main` branch is required; a detached host `HEAD` is rejected. Commit or stash
+host changes first. Reusing a task keeps its original source snapshot.
 
-From the original host repository, create or update the read-only bare
-upstream and prepare a task workspace:
+The clone is created on the host with `git clone --no-hardlinks`. Only that
+task's data directory is mounted read-write at `/workspace`, with the clone
+at `/workspace/repo`. The bare upstream is mounted read-only at
+`/mnt/upstream.git`; the entire workspace root is not exposed to the sandbox.
+Host Git author identity is copied into the clone, but credentials and signing
+keys are not. Commit signing is disabled locally in the clone.
 
-```sh
-handover-setup "Improve API error handling"
-```
-
-The task ID is normalized to `improve_api_error_handling`. By default, the
-bare upstream is stored under `~/development/agent/upstream-ro` and the task
-workspace under `~/development/agent/workspaces`. Override those locations
-with:
-
-```sh
-export HANDOVER_UPSTREAM_DIR="$HOME/path/to/upstreams"
-export HANDOVER_WORKSPACES_DIR="$HOME/path/to/workspaces"
-```
-
-The setup command prints the bare repository path and the clone command to use
-inside the agent:
+The attached shell automatically enters `/workspace/repo`. Launch the agent
+yourself and supply its instructions manually; task text is not delivered to
+the agent automatically:
 
 ```sh
-git clone --no-hardlinks \
-  "$HOME/development/agent/upstream-ro/dotfiles.git" \
-  "$HOME/development/agent/workspaces/improve_api_error_handling/dotfiles"
-```
-
-After the agent commits its work in that writable clone, return to the original
-host repository and fetch the result:
-
-```sh
-handover-sync "Improve API error handling"
-```
-
-This creates a bundle from the workspace repository's `HEAD` and fetches it
-into a local branch named `improve_api_error_handling`. Review it before
-publishing:
-
-```sh
-git diff main...improve_api_error_handling
-git log --oneline --decorate main..improve_api_error_handling
-```
-
-`handover-sync` discovers either a repository directly in the task workspace
-or the standard nested clone path. It does not push anything to a network
-remote.
-
-To create the upstream, start a microsandbox, mount the bare repository
-read-only, mount the workspace root read-write, and attach an interactive
-shell in one step:
-
-```sh
-handover-start "Improve API error handling"
-```
-
-The default sandbox name is `dotfiles-agent-improve_api_error_handling`, the
-image is `dotfiles-agent:latest`, and the sandbox uses 4 CPUs and 8 GiB of
-memory. Override these defaults with:
-
-```sh
-export HANDOVER_IMAGE=dotfiles-agent:latest
-export HANDOVER_CPUS=4
-export HANDOVER_MEMORY=8G
-export HANDOVER_SANDBOX_PREFIX=dotfiles-agent
-```
-
-Inside the attached sandbox, clone the mounted upstream into the writable
-workspace. `handover-start` performs this setup automatically. The resulting
-repository is ready for an agent:
-
-```sh
-TASK=improve_api_error_handling
-REPO=dotfiles
-git clone --no-hardlinks \
-  "/mnt/upstream/$REPO.git" \
-  "/workspace/$TASK/$REPO"
-cd "/workspace/$TASK/$REPO"
-git switch -c "$TASK" origin/main
-git config remote.origin.pushurl /dev/null
 opencode
+# After reviewing the changes, commit the files you intend to transfer.
+git add path/to/changed-file
+git commit -m "Improve API error handling"
+exit
 ```
 
-Exit the shell when finished, commit the work in the sandbox, and run
-`handover-sync` from the original host repository.
+Commits are required: `sync` transfers committed Git history, not working-tree
+changes or the agent's conversation state.
 
-When the work is no longer needed, remove the microsandbox and that task's
-workspace repository:
+### Stop, Resume, and Status
+
+From the host checkout:
 
 ```sh
-handover-cleanup "Improve API error handling"
+code-agent status "Improve API error handling"
+code-agent stop "Improve API error handling"
+code-agent resume "Improve API error handling"
 ```
 
-This uses the same sandbox prefix and workspace location as `handover-start`
-and does not remove the bare upstream repository or any other task workspace.
+`status` outputs the task's paths and `msb ls`. `stop` stops the sandbox but
+preserves both the workspace and sandbox state. `resume` reattaches to an
+existing sandbox and requires its setup metadata. `start` also resumes an
+existing sandbox, so it can be used to return to a task.
+
+### Sync and Review
+
+After committing the work, sync from the original host checkout:
+
+```sh
+code-agent sync "Improve API error handling"
+```
+
+`sync` rejects a dirty workspace tree, bundles the clone's `HEAD`, and fetches
+it into the local result branch `code-agent/<task-id>-<task-hash>`. The branch
+update is nonforced: divergent existing results are not overwritten. Nothing
+is published to a network remote. Git LFS objects and submodule material are
+not automatically transferred; handle those separately if the task needs them.
+
+Review the result against the host branch before merging or publishing. Replace
+`<task-hash>` below with the actual hash for this task:
+
+```sh
+RESULT_BRANCH='code-agent/improve_api_error_handling-<task-hash>'
+git diff HEAD..."$RESULT_BRANCH"
+git log --oneline --decorate HEAD.."$RESULT_BRANCH"
+```
+
+The agent's `/root` state is not transferred by `sync`.
+
+### Cleanup
+
+Inspect the removal targets without changing anything, then remove the task
+when its work has been safely synced:
+
+```sh
+code-agent cleanup "Improve API error handling" --dry-run
+code-agent cleanup "Improve API error handling"
+```
+
+Normal cleanup stops the sandbox first. It refuses removal if the task has
+dirty, ignored, or untracked content, or commits reachable from any local
+branch, tag, stash, reflog, or `HEAD`, including annotated-tag objects, that are
+not present in host refs. Branch names and reflog metadata are not retained.
+If it refuses, preserve
+the work or explicitly choose to discard it:
+
+```sh
+code-agent cleanup "Improve API error handling" --discard
+```
+
+`--discard` bypasses these data-loss protections. `--dry-run` only shows targets
+and does not stop the sandbox or mutate anything. Cleanup removes the task's
+sandbox and workspace, not the shared bare upstream or other tasks. It also
+discards the agent's `/root` state, including any conversation or tool state
+stored there, even after a successful sync.
+
+### Lifecycle Tests
+
+Run the lifecycle test suite from this repository:
+
+```sh
+bash modules/agent-sandbox/tests/lifecycle.sh
+```
 
 ## Direct Flake Commands
 

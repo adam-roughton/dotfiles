@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+export LC_ALL=C
+
+die() { printf '%s\n' "$*" >&2; exit 1; }
+usage() {
+  printf '%s\n' 'usage: code-agent {setup|start|resume|stop|status|sync|cleanup} TASK [--discard] [--dry-run]'
+}
+
+if [ "${1:-}" = --help ] || [ "${1:-}" = -h ]; then usage; exit 0; fi
+[ "$#" -ge 2 ] || { usage >&2; exit 2; }
+action="$1"
+task="$2"
+shift 2
+case "$action" in setup|start|resume|stop|status|sync|cleanup) ;; *) usage >&2; exit 2 ;; esac
+discard=false
+dry_run=false
+for option in "$@"; do
+  [ "$action" = cleanup ] || { usage >&2; exit 2; }
+  case "$option" in
+    --discard) discard=true ;;
+    --dry-run) dry_run=true ;;
+    *) usage >&2; exit 2 ;;
+  esac
+done
+
+task_id="$(printf '%s' "$task" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/_/g; s/^_+//; s/_+$//')"
+[ -n "$task_id" ] || die 'task name must contain at least one ASCII letter or number'
+# Keep resource names bounded, while retaining the original task's identity.
+task_id="${task_id:0:40}"
+task_hash="$(printf '%s' "$task" | sha256sum)"
+task_hash="${task_hash:0:12}"
+repo_root="$(git rev-parse --show-toplevel)"
+repo_root="$(realpath -e "$repo_root")"
+repo_hash="$(printf '%s' "$repo_root" | sha256sum)"
+repo_hash="${repo_hash:0:12}"
+repo_id="repo-$repo_hash"
+branch="code-agent/$task_id-$task_hash"
+workspace_root="$(realpath -m "${CODE_AGENT_WORKSPACES_DIR:-$HOME/development/agent/workspaces}")"
+upstream_root="$(realpath -m "${CODE_AGENT_UPSTREAM_DIR:-$HOME/development/agent/upstream-ro}")"
+task_dir="$workspace_root/code-agent/$repo_id/$task_id-$task_hash"
+data_dir="$task_dir/data"
+clone="$data_dir/repo"
+metadata="$task_dir/state"
+bare_repo="$upstream_root/code-agent/$repo_id.git"
+sandbox="${CODE_AGENT_SANDBOX_PREFIX:-code-agent}-$repo_hash-$task_id-$task_hash"
+[[ "$sandbox" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || die 'invalid sandbox prefix'
+[[ "$repo_root$workspace_root$upstream_root" != *$'\n'* ]] || die 'paths containing newlines are unsupported'
+[[ "$data_dir$bare_repo" != *:* ]] || die 'volume paths containing colons are unsupported'
+
+check_paths() {
+  local path
+  for path in "$task_dir" "$data_dir" "$clone" "$metadata" "$bare_repo"; do
+    [ "$(realpath -m "$path")" = "$path" ] || die "refusing symlinked path: $path"
+  done
+  [ ! -e "$clone/.git" ] || [ ! -L "$clone/.git" ] || die 'refusing a symlinked .git directory'
+}
+check_paths
+
+locked=false
+upstream_locked=false
+upstream_lock="${bare_repo%.git}.lock"
+scratch=''
+release() {
+  [ -z "$scratch" ] || rm -rf -- "$scratch"
+  if [ "$upstream_locked" = true ]; then rmdir -- "$upstream_lock"; fi
+  if [ "$locked" = true ]; then rmdir -- "$task_dir/lock"; fi
+}
+trap release EXIT
+if [ "$action" = setup ] || [ "$action" = start ]; then
+  mkdir -p "$task_dir"
+else
+  [ -f "$metadata" ] || die "task is not set up: $task_dir"
+fi
+# Metadata and the lock are deliberately outside the sandbox's writable mount.
+mkdir "$task_dir/lock" 2>/dev/null || die "task is locked: $task_dir/lock (remove only after confirming no command is running)"
+locked=true
+check_paths
+
+if [ -e "$metadata" ]; then
+  [ "$(git config --file "$metadata" --get task.repository)" = "$repo_root" ] || die 'task repository mismatch'
+  [ "$(git config --file "$metadata" --get task.name)" = "$task" ] || die 'task identity mismatch'
+  [ "$(git config --file "$metadata" --get task.sandbox)" = "$sandbox" ] || die 'sandbox prefix differs from task setup'
+  [ "$(git config --file "$metadata" --get task.upstream)" = "$bare_repo" ] || die 'upstream root differs from task setup'
+fi
+
+require_clone() {
+  [ -d "$clone/.git" ] || die "workspace clone missing or incomplete: $clone"
+  [ "$(git -C "$clone" rev-parse --show-toplevel)" = "$clone" ] || die 'workspace repository mismatch'
+}
+require_clean() {
+  local status
+  status="$(git -C "$clone" status --porcelain --untracked-files=all --ignored)" || die 'cannot inspect workspace; refusing to continue'
+  [ -z "$status" ] || die 'workspace has modified, untracked, or ignored files; preserve them or use cleanup --discard'
+}
+sandbox_exists() {
+  local names name
+  names="$(msb ls -q)" || die 'cannot list microsandboxes; refusing to continue'
+  while IFS= read -r name; do
+    [ "$name" != "$sandbox" ] || return 0
+  done <<< "$names"
+  return 1
+}
+sandbox_status() {
+  local inspection
+  inspection="$(msb inspect "$sandbox" --format json)" || die 'cannot inspect sandbox'
+  jq -er '.status | select(type == "string")' <<< "$inspection" || die 'invalid sandbox status'
+}
+stop_sandbox() {
+  local status
+  status="$(sandbox_status)"
+  case "$status" in
+    Paused) msb resume "$sandbox" ;;
+    Running|Stopped|Created|Crashed) ;;
+    *) die "sandbox is transitioning or has unknown status: $status; retry later" ;;
+  esac
+  msb stop "$sandbox"
+  [ "$(sandbox_status)" = Stopped ] || die 'sandbox did not stop; refusing to continue'
+}
+if [ "$action" != setup ] && [ "$action" != sync ]; then
+  command -v msb >/dev/null 2>&1 || die 'microsandbox CLI (msb) is not on PATH'
+fi
+
+if [ "$action" = setup ] || [ "$action" = start ]; then
+  if [ ! -e "$metadata" ]; then
+    source_branch="$(git -C "$repo_root" symbolic-ref --quiet --short HEAD)" || die 'host repository is in detached HEAD state'
+    host_status="$(git -C "$repo_root" status --porcelain --untracked-files=all)" || die 'cannot inspect host repository'
+    [ -z "$host_status" ] || die 'commit or stash host changes before setup'
+    source_commit="$(git -C "$repo_root" rev-parse HEAD)"
+    [ ! -e "$clone" ] || die 'unowned workspace exists; refusing to overwrite it'
+    scratch="$(mktemp -d "$task_dir/initialization.XXXXXXXX")"
+    git config --file "$scratch/state" task.repository "$repo_root"
+    git config --file "$scratch/state" task.name "$task"
+    git config --file "$scratch/state" task.sandbox "$sandbox"
+    git config --file "$scratch/state" task.upstream "$bare_repo"
+    git config --file "$scratch/state" task.sourceBranch "$source_branch"
+    git config --file "$scratch/state" task.sourceCommit "$source_commit"
+    mv -- "$scratch/state" "$metadata"
+    rmdir -- "$scratch"
+    scratch=''
+  fi
+  source_commit="$(git config --file "$metadata" --get task.sourceCommit)"
+  mkdir -p "$(dirname "$bare_repo")" "$data_dir"
+  [ "$(realpath -m "$upstream_lock")" = "$upstream_lock" ] || die 'refusing symlinked upstream lock'
+  attempts=0
+  until mkdir "$upstream_lock" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    [ "$attempts" -lt 30 ] || die "upstream is locked: $upstream_lock (remove only after confirming no command is running)"
+    sleep 1
+  done
+  upstream_locked=true
+  check_paths
+  if [ ! -e "$bare_repo" ]; then git init --bare "$bare_repo" >/dev/null; fi
+  [ "$(git -C "$bare_repo" rev-parse --is-bare-repository)" = true ] || die 'upstream is not a bare repository'
+  # Immutable snapshot refs accept rebased source branches without force pushes.
+  git -c push.gpgSign=false -C "$repo_root" push "$bare_repo" "$source_commit:refs/heads/snapshot-$source_commit"
+  rmdir -- "$upstream_lock"
+  upstream_locked=false
+  if [ ! -e "$clone" ]; then
+    git clone --no-hardlinks --branch "snapshot-$source_commit" "$bare_repo" "$clone"
+  fi
+  require_clone
+  if [ "$(git config --file "$metadata" --get task.ready || true)" != true ]; then
+    require_clean
+    [ "$(git -C "$clone" rev-parse HEAD)" = "$source_commit" ] || die 'incomplete initialization contains work; refusing to reset it'
+    if git -C "$clone" show-ref --verify --quiet "refs/heads/$branch"; then
+      git -C "$clone" switch "$branch"
+    else
+      git -C "$clone" switch -c "$branch" "$source_commit"
+    fi
+    git -C "$clone" config remote.origin.url /mnt/upstream.git
+    git -C "$clone" config remote.origin.pushurl /dev/null
+    git -C "$clone" config user.name "$(git -C "$repo_root" config user.name || printf 'Code Agent')"
+    git -C "$clone" config user.email "$(git -C "$repo_root" config user.email || printf 'code-agent@localhost')"
+    git -C "$clone" config commit.gpgsign false
+    git -C "$clone" config tag.gpgsign false
+    git config --file "$metadata" task.ready true
+  fi
+fi
+
+printf 'Task: %s\nBranch: %s\nSandbox: %s\nWorkspace: %s\nUpstream: %s\n' "$task" "$branch" "$sandbox" "$clone" "$bare_repo"
+case "$action" in
+  setup) ;;
+  start|resume)
+    require_clone
+    [ "$(git config --file "$metadata" --get task.ready || true)" = true ] || die 'initialization incomplete; run code-agent setup first'
+    if sandbox_exists; then
+      case "$(sandbox_status)" in
+        Running) ;;
+        Paused) msb resume "$sandbox" ;;
+        Created|Stopped|Crashed) msb start "$sandbox" ;;
+        *) die 'sandbox is transitioning or has unknown status; retry later' ;;
+      esac
+    elif [ "$action" = resume ]; then
+      die 'sandbox is absent; use code-agent start to recreate it'
+    else
+      msb create --name "$sandbox" --cpus "${CODE_AGENT_CPUS:-4}" \
+        --memory "${CODE_AGENT_MEMORY:-8G}" \
+        --volume "$bare_repo:/mnt/upstream.git:ro" \
+        --volume "$data_dir:/workspace" "${CODE_AGENT_IMAGE:-dotfiles-agent:latest}"
+    fi
+    [ "$(sandbox_status)" = Running ] || die 'sandbox did not start; retry later'
+    printf '%s\n' 'Entering the repository. Launch your agent manually; commit before sync. Exiting leaves the sandbox running.'
+    rmdir -- "$task_dir/lock"
+    locked=false
+    msb exec --tty "$sandbox" -- zsh -c 'cd /workspace/repo && exec zsh'
+    ;;
+  stop)
+    if sandbox_exists; then stop_sandbox; fi
+    ;;
+  status)
+    msb ls
+    ;;
+  sync)
+    require_clone
+    require_clean
+    [ "$(git -C "$clone" symbolic-ref --quiet --short HEAD)" = "$branch" ] || die 'workspace is not on the expected task branch'
+    scratch="$(mktemp -d "${TMPDIR:-/tmp}/code-agent.XXXXXXXX")"
+    git -C "$clone" bundle create "$scratch/result.bundle" HEAD
+    git -C "$repo_root" bundle verify "$scratch/result.bundle" >/dev/null
+    git -C "$repo_root" fetch "$scratch/result.bundle" "HEAD:refs/heads/$branch"
+    printf 'Fetched committed work into %s; review before merging or publishing.\n' "$branch"
+    ;;
+  cleanup)
+    if [ "$dry_run" = true ]; then
+      sandbox_exists || true
+      printf 'Would remove sandbox %s and task directory %s. No work-preservation checks performed.\n' "$sandbox" "$task_dir"
+      exit 0
+    fi
+    if sandbox_exists; then stop_sandbox; fi
+    check_paths
+    if [ "$discard" = false ]; then
+      require_clone
+      require_clean
+      for entry in "$data_dir"/* "$data_dir"/.[!.]* "$data_dir"/..?*; do
+        [ ! -e "$entry" ] && [ ! -L "$entry" ] && continue
+        [ "$entry" = "$clone" ] || die 'workspace contains extra files; preserve them or use cleanup --discard'
+      done
+      scratch="$(mktemp -d "${TMPDIR:-/tmp}/code-agent.XXXXXXXX")"
+      # Include stash, reflogs, and annotated tags, not just the current branch.
+      git -C "$clone" rev-list --objects --all --reflog HEAD | cut -d ' ' -f 1 | sort -u > "$scratch/workspace-objects"
+      git -C "$repo_root" rev-list --objects --all | cut -d ' ' -f 1 | sort -u > "$scratch/host-objects"
+      comm -23 "$scratch/workspace-objects" "$scratch/host-objects" > "$scratch/missing"
+      [ ! -s "$scratch/missing" ] || die 'workspace commits or Git objects are not preserved in host refs; preserve them or use cleanup --discard'
+    fi
+    if sandbox_exists; then msb rm --force "$sandbox"; fi
+    check_paths
+    rm -rf -- "$data_dir"
+    rm -f -- "$metadata"
+    rmdir -- "$task_dir/lock"
+    locked=false
+    rmdir -- "$task_dir"
+    printf '%s\n' 'Removed task workspace and sandbox; retained upstream and host branches.'
+    ;;
+esac

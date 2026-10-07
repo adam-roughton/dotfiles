@@ -80,7 +80,7 @@ case "$mode" in
       force=true
       shift
     fi
-    image_tag="${MSB_AGENT_IMAGE:-dotfiles-agent:latest}"
+    image_tag="${CODE_AGENT_IMAGE:-dotfiles-agent:latest}"
     command -v msb >/dev/null 2>&1 || {
       echo "microsandbox CLI (msb) is not installed or is not on PATH" >&2
       exit 1

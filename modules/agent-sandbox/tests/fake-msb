@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${FAKE_MSB_STATE:?}" "${FAKE_MSB_LOG:?}"
+printf '%q ' "$@" >> "$FAKE_MSB_LOG"
+printf '\n' >> "$FAKE_MSB_LOG"
+command="${1:?}"
+shift
+if [ "${FAKE_MSB_FAIL:-}" = "$command" ]; then
+  printf 'injected msb %s failure\n' "$command" >&2
+  exit 42
+fi
+
+case "$command" in
+  ls)
+    for entry in "$FAKE_MSB_STATE"/*; do
+      [ -f "$entry" ] || continue
+      printf '%s\n' "${entry##*/}"
+    done
+    ;;
+  create)
+    [ "${1:-}" = --name ] || exit 2
+    name="$2"
+    [ ! -e "$FAKE_MSB_STATE/$name" ] || exit 3
+    printf 'Running\n' > "$FAKE_MSB_STATE/$name"
+    ;;
+  inspect)
+    [ "$#" = 3 ] && [ "$2" = --format ] && [ "$3" = json ] || exit 2
+    [ -f "$FAKE_MSB_STATE/$1" ] || exit 3
+    printf '{"name":"%s","status":"%s"}\n' "$1" "$(< "$FAKE_MSB_STATE/$1")"
+    ;;
+  start|resume|stop)
+    [ "$#" = 1 ] && [ -f "$FAKE_MSB_STATE/$1" ] || exit 3
+    status="$(< "$FAKE_MSB_STATE/$1")"
+    case "$command:$status" in
+      start:Created|start:Stopped|start:Crashed|resume:Paused)
+        [ "${FAKE_MSB_NO_TRANSITION:-}" = "$command" ] || printf 'Running\n' > "$FAKE_MSB_STATE/$1" ;;
+      stop:Running|stop:Stopped|stop:Created|stop:Crashed)
+        [ "${FAKE_MSB_NO_TRANSITION:-}" = "$command" ] || printf 'Stopped\n' > "$FAKE_MSB_STATE/$1" ;;
+      *) printf 'invalid msb transition: %s from %s\n' "$command" "$status" >&2; exit 3 ;;
+    esac
+    ;;
+  rm)
+    [ "${1:-}" = --force ] && [ "$#" = 2 ] || exit 2
+    [ -f "$FAKE_MSB_STATE/$2" ] || exit 3
+    [ "$(< "$FAKE_MSB_STATE/$2")" = Stopped ] || exit 3
+    rm -- "$FAKE_MSB_STATE/$2"
+    ;;
+  exec)
+    [ "${1:-}" = --tty ] && [ -f "$FAKE_MSB_STATE/${2:-}" ] || exit 3
+    [ "$(< "$FAKE_MSB_STATE/$2")" = Running ] || exit 3
+    if [ -n "${FAKE_MSB_EXEC_LOCK:-}" ]; then
+      [ ! -e "$FAKE_MSB_EXEC_LOCK" ] || { printf 'task lock held during exec\n' >&2; exit 4; }
+    fi
+    if [ -n "${FAKE_MSB_EXEC_SCRIPT:-}" ]; then
+      bash "$FAKE_MSB_EXEC_SCRIPT" status "${FAKE_MSB_EXEC_TASK:?}"
+    fi
+    # Deliberately do not execute the guest command.
+    ;;
+  *) printf 'unsupported fake msb command: %s\n' "$command" >&2; exit 2 ;;
+esac
