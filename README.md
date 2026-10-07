@@ -151,7 +151,29 @@ lifecycle, with `ca` as an alias in both Bash and Zsh:
 
 ```text
 code-agent {setup|start|resume|stop|status|sync|cleanup} [TASK] [--discard] [--dry-run]
+code-agent help [COMMAND]
 ```
+
+`code-agent` is the single entrypoint; `ca` is only its shell alias, not a
+separate implementation. Each lifecycle operation is a subcommand with its
+own help:
+
+```sh
+ca help
+ca help start
+ca start --help
+ca sync -h
+ca cleanup help
+```
+
+No arguments shows general help. Help works outside a repository, requires no
+running sandbox, and does not create branches or change task state. Invalid
+commands or options exit with status 2. `help`, `--help`, and `-h` are reserved
+help arguments, not task names.
+
+This entrypoint currently covers coding workflows only. Future `triage-agent`
+and `data-agent` commands can use the same subcommand/help pattern with their
+own workflows; neither is implemented or installed yet.
 
 The flags are valid only for `cleanup`. Run host commands from the original
 host Git checkout. Without a task name, the current branch identifies the task.

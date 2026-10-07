@@ -11,15 +11,99 @@ cpus=@cpus@
 memory=@memory@
 
 die() { printf '%s\n' "$*" >&2; exit 1; }
-usage() {
-  printf '%s\n' 'usage: code-agent {setup|start|resume|stop|status|sync|cleanup} [TASK] [--discard] [--dry-run]' '       code-agent --print-image'
+command_help() {
+  local command="${1:-}" description
+  if [ -z "$command" ]; then
+    printf '%s\n' \
+      'Usage: code-agent COMMAND [TASK] [OPTIONS]' \
+      '       code-agent help [COMMAND]' \
+      '' \
+      'Isolated coding-agent workspaces. Shell alias: ca.' \
+      '' \
+      'Commands:' \
+      '  setup    Prepare the host branch, upstream snapshot, and agent clone.' \
+      '  start    Set up or resume a sandbox and attach a shell.' \
+      '  resume   Attach to an existing sandbox without creating one.' \
+      '  stop     Stop a sandbox while retaining its workspace and state.' \
+      '  status   Show task paths and list sandboxes.' \
+      '  sync     Fast-forward the host task branch from committed agent work.' \
+      '  cleanup  Remove a sandbox and workspace with preservation checks.' \
+      '  help     Show general or command-specific help.' \
+      '' \
+      'TASK defaults to the current host branch. Explicit names are normalized.' \
+      'On main, setup/start prompt for a task branch.' \
+      'Run code-agent help COMMAND or code-agent COMMAND --help for details.' \
+      'Configuration comes from dotfiles.agentSandbox in Home Manager.' \
+      'code-agent --print-image prints the configured image tag for build tooling.'
+    return
+  fi
+  case "$command" in
+    setup) description='Create or select the task branch, publish its committed snapshot, and prepare the agent clone. Does not create a sandbox.' ;;
+    start) description='Perform setup, create or resume the sandbox, and enter /workspace/repo. Launch the coding agent manually. Exiting the shell leaves the sandbox running.' ;;
+    resume) description='Start or unpause an existing sandbox and enter /workspace/repo. Does not create a missing sandbox or switch the host branch.' ;;
+    stop) description='Stop the sandbox, retaining the workspace and sandbox state. A missing sandbox is harmless; the task must have setup metadata.' ;;
+    status) description='Print the task branch, sandbox name, workspace, and upstream paths, then list microsandboxes. The task must have setup metadata.' ;;
+    sync) description='Import committed agent HEAD and fast-forward the host task branch. A checked-out task branch also updates host files. Divergence stops the update and retains an incoming ref for manual recovery. Does not publish or merge into main.' ;;
+    cleanup) description='Stop and remove the sandbox and task workspace. Refuse unpreserved files or Git objects unless --discard is provided. Retain upstream repositories, host branches, and incoming refs. Sandbox-local agent sessions and credentials are discarded.' ;;
+    help)
+      printf '%s\n' 'Usage: code-agent help [COMMAND]' '' 'Show general help or help for one lifecycle command.' 'Equivalent: code-agent COMMAND --help (or -h).'
+      return
+      ;;
+    *) printf 'Unknown command: %s\n' "$command" >&2; return 2 ;;
+  esac
+  printf 'Usage: code-agent %s [TASK]' "$command"
+  if [ "$command" = cleanup ]; then printf ' [--discard] [--dry-run]'; fi
+  printf '\n\n%s\n\n' "$description"
+  printf '%s\n' \
+    'Task selection:' \
+    '  Omit TASK to use the current host branch exactly.' \
+    '  Explicit TASK names are normalized to lower snake case.'
+  case "$command" in
+    setup|start)
+      printf '%s\n' '  Create a missing branch from the current one; select an existing branch.' '  On main, an omitted TASK prompts for a branch name.'
+      ;;
+    *) printf '%s\n' '  On main, provide TASK explicitly; no host branch is created or selected.' ;;
+  esac
+  case "$command" in
+    setup|start|resume|sync)
+      printf '\n%s\n' 'Safety: host tracked, staged, and untracked changes must be committed or stashed.'
+      ;;
+  esac
+  if [ "$command" = sync ]; then
+    printf '%s\n' 'The agent tree must be clean and on the task branch. Another worktree owning' 'the target branch blocks the update. LFS/submodule payloads are not transferred.'
+  elif [ "$command" = cleanup ]; then
+    printf '\n%s\n' 'Options:' '  --dry-run  Show removal targets without stopping or deleting anything.' '             Does not perform work-preservation checks.' '  --discard  Delete even unpreserved work. Irreversible; use deliberately.'
+  fi
+  printf '\nExamples:\n  ca %s\n  ca %s "Improve API"\n' "$command" "$command"
+  printf '\n%s\n' 'Help: --help, -h, or help. Configuration: dotfiles.agentSandbox in Home Manager.'
 }
 
-if [ "${1:-}" = --help ] || [ "${1:-}" = -h ]; then usage; exit 0; fi
+if [ "$#" -eq 0 ]; then command_help; exit 0; fi
+case "$1" in
+  help|--help|-h)
+    [ "$#" -le 2 ] || { command_help >&2; exit 2; }
+    case "${2:-}" in
+      --help|-h) command_help help ;;
+      *) command_help "${2:-}" ;;
+    esac
+    exit 0
+    ;;
+esac
 if [ "$#" -eq 1 ] && [ "$1" = --print-image ]; then printf '%s\n' "$image"; exit 0; fi
-[ "$#" -ge 1 ] || { usage >&2; exit 2; }
 action="$1"
 shift
+case "$action" in
+  setup|start|resume|stop|status|sync|cleanup) ;;
+  *) printf 'Unknown command: %s\n' "$action" >&2; command_help >&2; exit 2 ;;
+esac
+for argument in "$@"; do
+  case "$argument" in
+    --help|-h|help)
+      command_help "$action"
+      exit 0
+      ;;
+  esac
+done
 task=''
 explicit_task=false
 if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then
@@ -27,15 +111,14 @@ if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then
   explicit_task=true
   shift
 fi
-case "$action" in setup|start|resume|stop|status|sync|cleanup) ;; *) usage >&2; exit 2 ;; esac
 discard=false
 dry_run=false
 for option in "$@"; do
-  [ "$action" = cleanup ] || { usage >&2; exit 2; }
+  [ "$action" = cleanup ] || { command_help "$action" >&2; exit 2; }
   case "$option" in
     --discard) discard=true ;;
     --dry-run) dry_run=true ;;
-    *) usage >&2; exit 2 ;;
+    *) command_help "$action" >&2; exit 2 ;;
   esac
 done
 

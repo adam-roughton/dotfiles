@@ -943,6 +943,48 @@ configured_settings() {
   ok cleanup "$TASK"
 }
 
+command_help() {
+  local command form before
+  before="$(git -C "$HOST" show-ref)"
+  # Help and argument validation must work without a repository or msb.
+  HOST="$CASE/home"
+  export FAKE_MSB_FAIL=ls
+  for form in '' help --help -h; do
+    if [ -z "$form" ]; then ok; else ok "$form"; fi
+    contains "$OUTPUT" 'Usage: code-agent COMMAND'
+    contains "$OUTPUT" 'Commands:'
+    contains "$OUTPUT" 'Configuration comes from dotfiles.agentSandbox'
+  done
+  for command in setup start resume stop status sync cleanup help; do
+    ok help "$command"
+    contains "$OUTPUT" "Usage: code-agent $command"
+    for form in --help -h help; do
+      ok "$command" "$form"
+      contains "$OUTPUT" "Usage: code-agent $command"
+    done
+    if [ "$command" != help ]; then
+      ok "$command" 'Example Task' --help
+      contains "$OUTPUT" "Usage: code-agent $command"
+    fi
+  done
+  ok cleanup --help
+  contains "$OUTPUT" '--discard'
+  contains "$OUTPUT" '--dry-run'
+  contains "$OUTPUT" 'Irreversible'
+  ok sync --help
+  contains "$OUTPUT" 'Divergence'
+  contains "$OUTPUT" 'host tracked, staged, and untracked changes'
+  reject 'Unknown command: missing' missing
+  reject 'Unknown command: missing' help missing
+  reject 'Usage: code-agent start' start --invalid
+  reject 'Usage: code-agent cleanup' cleanup example --invalid
+  unset FAKE_MSB_FAIL
+  equal "$(count_command ls)" 0
+  absent "$CASE/workspaces"
+  absent "$CASE/upstream"
+  equal "$(git -C "$CASE/repositories/project" show-ref)" "$before"
+}
+
 if [ "${1:-}" = --case ]; then
   CASE_NAME="$2"
   CASE="$3"
@@ -1002,7 +1044,7 @@ tests=(roundtrip reuse mount_isolation repo_identity task_identity main_task reb
   symlink_parent symlink_clone symlink_git dry_run partial_initialization
   checked_out_destination no_main lock_refusal wrong_branch paused_lifecycle
   inspect_failure start_failure resume_failure transition_verification reflog_cleanup
-  stash_cleanup annotated_tag_cleanup signed_push concurrent_setup interactive_lock configured_settings)
+  stash_cleanup annotated_tag_cleanup signed_push concurrent_setup interactive_lock configured_settings command_help)
 passed=0
 failed=0
 for test in "${tests[@]}"; do
