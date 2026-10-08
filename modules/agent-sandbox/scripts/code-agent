@@ -9,6 +9,7 @@ sandbox_prefix=@sandboxPrefix@
 image=@image@
 cpus=@cpus@
 memory=@memory@
+cache_directory=@cacheDirectory@
 
 die() { printf '%s\n' "$*" >&2; exit 1; }
 command_help() {
@@ -74,6 +75,9 @@ command_help() {
   elif [ "$command" = cleanup ]; then
     printf '\n%s\n' 'Options:' '  --dry-run  Show removal targets without stopping or deleting anything.' '             Does not perform work-preservation checks.' '  --discard  Delete even unpreserved work. Irreversible; use deliberately.'
   fi
+  case "$command" in
+    start|resume|cleanup) printf '\n%s\n' 'Package managers use shared writable caches on new sandboxes; task cleanup retains them.' 'Concurrent VMs can corrupt lock-dependent caches. Stop all cache users before maintenance.' ;;
+  esac
   printf '\nExamples:\n  ca %s\n  ca %s "Improve API"\n' "$command" "$command"
   printf '\n%s\n' 'Help: --help, -h, or help. Configuration: dotfiles.agentSandbox in Home Manager.'
 }
@@ -160,6 +164,13 @@ repo_hash="${repo_hash:0:12}"
 repo_id="repo-$repo_hash"
 workspace_root="$(realpath -m "$workspace_directory")"
 upstream_root="$(realpath -m "$upstream_directory")"
+cache_root="$(realpath -m "$cache_directory")"
+for private_root in "$repo_root" "$workspace_root" "$upstream_root"; do
+  if [ "$cache_root" = / ] || [ "$private_root" = / ] || \
+    [[ "$cache_root/" == "$private_root/"* ]] || [[ "$private_root/" == "$cache_root/"* ]]; then
+    die 'package cache must not overlap the host repository, workspace, or upstream directories'
+  fi
+done
 task_dir="$workspace_root/code-agent/$repo_id/$task_id-$task_hash"
 data_dir="$task_dir/data"
 clone="$data_dir/repo"
@@ -167,8 +178,8 @@ metadata="$task_dir/state"
 bare_repo="$upstream_root/code-agent/$repo_id.git"
 sandbox="$sandbox_prefix-$repo_hash-$task_id-$task_hash"
 [[ "$sandbox" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || die 'invalid sandbox prefix'
-[[ "$repo_root$workspace_root$upstream_root" != *$'\n'* ]] || die 'paths containing newlines are unsupported'
-[[ "$data_dir$bare_repo" != *:* ]] || die 'volume paths containing colons are unsupported'
+[[ "$repo_root$workspace_root$upstream_root$cache_root" != *$'\n'* ]] || die 'paths containing newlines are unsupported'
+[[ "$data_dir$bare_repo$cache_root" != *:* ]] || die 'volume paths containing colons are unsupported'
 
 check_paths() {
   local path
@@ -204,6 +215,8 @@ if [ -e "$metadata" ]; then
   [ "$(git config --file "$metadata" --get task.name)" = "$task" ] || die 'task identity mismatch'
   [ "$(git config --file "$metadata" --get task.sandbox)" = "$sandbox" ] || die 'sandbox prefix differs from task setup'
   [ "$(git config --file "$metadata" --get task.upstream)" = "$bare_repo" ] || die 'upstream root differs from task setup'
+  previous_cache="$(git config --file "$metadata" --get task.cacheDirectory || true)"
+  [ -z "$previous_cache" ] || [ "$previous_cache" = "$cache_root" ] || die 'cache directory differs from task setup; restore it before stopping or cleaning up'
 fi
 
 require_clone() {
@@ -238,6 +251,29 @@ stop_sandbox() {
   esac
   msb stop "$sandbox"
   [ "$(sandbox_status)" = Stopped ] || die 'sandbox did not stop; refusing to continue'
+}
+warn_concurrent_caches() {
+  local names name inspection status others=''
+  if ! names="$(msb ls -q)"; then
+    printf '%s\n' 'WARNING: Cannot check other VMs; shared cache concurrency risk is unknown.' >&2
+    return
+  fi
+  while IFS= read -r name; do
+    if [ -z "$name" ] || [ "$name" = "$sandbox" ]; then continue; fi
+    if ! inspection="$(msb inspect "$name" --format json)" || \
+      ! status="$(jq -er '.status | select(type == "string")' <<< "$inspection")"; then
+      printf 'WARNING: Cannot inspect VM %s; shared cache concurrency risk is unknown.\n' "$name" >&2
+      continue
+    fi
+    case "$status" in
+      Running|Starting) others="${others}${others:+, }$name" ;;
+    esac
+  done <<< "$names"
+  if [ -n "$others" ]; then
+    printf 'WARNING: Other VMs are running: %s\n' "$others" >&2
+    printf '%s\n' 'Shared package caches may be corrupted by concurrent writes: cross-VM file locks are not coordinated.' \
+      'This warning does not block startup. Stop all cache users before clearing/rebuilding caches; affected task environments may also need rebuilding.' >&2
+  fi
 }
 if [ "$action" != setup ] && [ "$action" != sync ]; then
   command -v msb >/dev/null 2>&1 || die 'microsandbox CLI (msb) is not on PATH'
@@ -309,7 +345,7 @@ if [ "$action" = setup ] || [ "$action" = start ]; then
   fi
 fi
 
-printf 'Task: %s\nBranch: %s\nSandbox: %s\nWorkspace: %s\nUpstream: %s\n' "$task" "$branch" "$sandbox" "$clone" "$bare_repo"
+printf 'Task: %s\nBranch: %s\nSandbox: %s\nWorkspace: %s\nUpstream: %s\nCache: %s\n' "$task" "$branch" "$sandbox" "$clone" "$bare_repo" "$cache_root"
 case "$action" in
   setup) ;;
   start|resume)
@@ -325,12 +361,32 @@ case "$action" in
     elif [ "$action" = resume ]; then
       die 'sandbox is absent; use code-agent start to recreate it'
     else
+      mkdir -p "$cache_root"
+      for cache in cargo/registry cargo/git gradle/caches gradle/wrapper maven/repository ivy; do
+        [ "$(realpath -m "$cache_root/$cache")" = "$cache_root/$cache" ] || die 'refusing symlinked package cache directory'
+        mkdir -p "$cache_root/$cache"
+      done
+      git config --file "$metadata" task.cacheDirectory "$cache_root"
       msb create --name "$sandbox" --cpus "$cpus" \
         --memory "$memory" \
         --volume "$bare_repo:/mnt/upstream.git:ro" \
-        --volume "$data_dir:/workspace" "$image"
+        --volume "$data_dir:/workspace" \
+        --volume "$cache_root:/cache" \
+        --volume "$cache_root/cargo/registry:/root/.cargo/registry" \
+        --volume "$cache_root/cargo/git:/root/.cargo/git" \
+        --volume "$cache_root/gradle/caches:/root/.gradle/caches" \
+        --volume "$cache_root/gradle/wrapper:/root/.gradle/wrapper" \
+        --volume "$cache_root/maven/repository:/root/.m2/repository" \
+        --volume "$cache_root/ivy:/root/.ivy2/cache" \
+        --env PIP_CACHE_DIR=/cache/pip \
+        --env UV_CACHE_DIR=/cache/uv --env UV_LINK_MODE=copy \
+        --env npm_config_cache=/cache/npm --env YARN_CACHE_FOLDER=/cache/yarn \
+        --env npm_config_store_dir=/cache/pnpm --env BUN_INSTALL_CACHE_DIR=/cache/bun \
+        --env GOMODCACHE=/cache/go-mod --env GOCACHE=/cache/go-build \
+        --env COURSIER_CACHE=/cache/coursier "$image"
     fi
     [ "$(sandbox_status)" = Running ] || die 'sandbox did not start; retry later'
+    warn_concurrent_caches
     printf '%s\n' 'Entering the repository. Launch your agent manually; commit before sync. Exiting leaves the sandbox running.'
     rmdir -- "$task_dir/lock"
     locked=false

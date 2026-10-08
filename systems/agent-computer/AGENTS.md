@@ -25,6 +25,22 @@ read-only source material.
 - Before destructive commands, confirm the target is inside the writable
   workspace.
 
+## Package Caches
+
+- When `/cache` is mounted, package managers use shared caches automatically.
+  Use the project's lockfile normally; for uv projects prefer `uv sync --locked`.
+- Keep virtualenvs, installed dependencies, and project build outputs inside the
+  task workspace. Do not enable shared centralized uv project environments.
+- Shared Cargo, Gradle, Maven, Ivy, and other caches may be corrupted by
+  concurrent VMs because cross-VM file locks are not coordinated. Report cache
+  errors to the host operator rather than silently deleting or repairing caches.
+- Other agents may be using the cache. Do not run cache clean/prune commands or
+  manually modify/delete cache entries. Ask the host operator to stop all cache
+  users before maintenance.
+- Do not put credentials or other secrets in the shared cache.
+- Gradle caches can retain compiled project scripts and embedded secret values;
+  do not embed credentials in build scripts.
+
 ## Agent Changes
 
 - Inspect the repository and its existing instructions before editing.

@@ -5,8 +5,8 @@ let
     name = "code-agent";
     runtimeInputs = with pkgs; [ coreutils gnused git jq ];
     text = lib.replaceStrings
-      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" ]
-      (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory ])
+      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@cacheDirectory@" ]
+      (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory cfg.cacheDirectory ])
       (builtins.readFile ./scripts/code-agent);
   };
 in with lib; {
@@ -33,6 +33,12 @@ in with lib; {
         type = types.strMatching "[a-zA-Z0-9][a-zA-Z0-9_-]*";
         default = "code-agent";
         description = "Prefix for repository-scoped sandbox names.";
+      };
+      cacheDirectory = mkOption {
+        type = types.strMatching "/[^\n:]*";
+        default = "${config.home.homeDirectory}/development/agent/package-cache";
+        defaultText = literalExpression ''"''${config.home.homeDirectory}/development/agent/package-cache"'';
+        description = "Dedicated shared writable package cache for agent sandboxes. Must not overlap repositories, workspace, or upstream directories. Retained by task cleanup.";
       };
       image = mkOption {
         type = types.nonEmptyStr;

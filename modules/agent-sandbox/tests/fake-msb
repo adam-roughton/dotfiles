@@ -30,6 +30,10 @@ case "$command" in
     ;;
   inspect)
     [ "$#" = 3 ] && [ "$2" = --format ] && [ "$3" = json ] || exit 2
+    if [ "${FAKE_MSB_FAIL_INSPECT_NAME:-}" = "$1" ]; then
+      printf 'injected msb inspect failure for %s\n' "$1" >&2
+      exit 42
+    fi
     [ -f "$FAKE_MSB_STATE/$1" ] || exit 3
     printf '{"name":"%s","status":"%s"}\n' "$1" "$(< "$FAKE_MSB_STATE/$1")"
     ;;

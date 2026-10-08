@@ -13,6 +13,15 @@ absent() { if [ -e "$1" ] || [ -L "$1" ]; then fail "unexpected path: $1"; fi; }
 
 agent() { (cd -- "$HOST" && bash "$SCRIPT" "$@"); }
 ok() { OUTPUT="$(agent "$@" 2>&1)" || fail "command failed: $*"; }
+ok_attach() {
+  local before
+  before="$(count_command exec)"
+  agent "$@" > "$CASE/attach.out" 2> "$CASE/attach.err" || { OUTPUT="$(< "$CASE/attach.err")"; fail "attach failed: $*"; }
+  OUTPUT="$(< "$CASE/attach.out")"
+  STDERR="$(< "$CASE/attach.err")"
+  [[ "$OUTPUT" != *WARNING:* ]] || fail 'cache warning emitted on stdout'
+  equal "$(count_command exec)" "$((before + 1))"
+}
 reject() {
   local reason="$1"
   shift
@@ -37,6 +46,7 @@ task_fields() {
   BRANCH="$(field Branch)"
   SANDBOX="$(field Sandbox)"
   UPSTREAM="$(field Upstream)"
+  equal "$(field Cache)" "$CACHE"
   DATA="${CLONE%/repo}"
   TASK_DIR="${DATA%/data}"
   META="$TASK_DIR/state"
@@ -66,6 +76,34 @@ logged() {
   printf -v expected '%q ' "$@"
   while IFS= read -r line; do [ "$line" != "$expected" ] || return 0; done < "$FAKE_MSB_LOG"
   fail "missing msb invocation: $expected"
+}
+expected_create() {
+  logged create --name "${1:-$SANDBOX}" --cpus "${3:-4}" --memory "${4:-8G}" \
+    --volume "$UPSTREAM:/mnt/upstream.git:ro" --volume "${2:-$DATA}:/workspace" \
+    --volume "$CACHE:/cache" \
+    --volume "$CACHE/cargo/registry:/root/.cargo/registry" \
+    --volume "$CACHE/cargo/git:/root/.cargo/git" \
+    --volume "$CACHE/gradle/caches:/root/.gradle/caches" \
+    --volume "$CACHE/gradle/wrapper:/root/.gradle/wrapper" \
+    --volume "$CACHE/maven/repository:/root/.m2/repository" \
+    --volume "$CACHE/ivy:/root/.ivy2/cache" \
+    --env PIP_CACHE_DIR=/cache/pip \
+    --env UV_CACHE_DIR=/cache/uv --env UV_LINK_MODE=copy \
+    --env npm_config_cache=/cache/npm --env YARN_CACHE_FOLDER=/cache/yarn \
+    --env npm_config_store_dir=/cache/pnpm --env BUN_INSTALL_CACHE_DIR=/cache/bun \
+    --env GOMODCACHE=/cache/go-mod --env GOCACHE=/cache/go-build \
+    --env COURSIER_CACHE=/cache/coursier "${5:-dotfiles-agent:latest}"
+}
+render() {
+  local template index value
+  template="$(< "$TEMPLATE")"
+  values[6]="$CACHE"
+  for index in "${!keys[@]}"; do
+    printf -v value '%q' "${values[$index]}"
+    template="${template//\@${keys[$index]}\@/$value}"
+  done
+  printf '%s\n' "$template" > "$SCRIPT"
+  chmod +x "$SCRIPT"
 }
 count_command() {
   local line count=0
@@ -101,9 +139,9 @@ roundtrip() {
   equal "$(git -C "$CLONE" config remote.origin.url)" /mnt/upstream.git
   equal "$(git -C "$CLONE" config remote.origin.pushurl)" /dev/null
   equal "$(count_command create)" 0
+  absent "$CACHE"
   ok start "$TASK"
-  logged create --name "$SANDBOX" --cpus 4 --memory 8G \
-    --volume "$UPSTREAM:/mnt/upstream.git:ro" --volume "$DATA:/workspace" dotfiles-agent:latest
+  expected_create
   logged exec --tty "$SANDBOX" -- zsh -c 'cd /workspace/repo && exec zsh'
   commit_work
   ok sync "$TASK"
@@ -156,13 +194,235 @@ mount_isolation() {
   ok start "$TASK"
   [ "$DATA" != "$first_data" ] || fail 'tasks share writable mount'
   equal "$UPSTREAM" "$first_upstream"
-  logged create --name "$first_sandbox" --cpus 4 --memory 8G \
-    --volume "$UPSTREAM:/mnt/upstream.git:ro" --volume "$first_data:/workspace" dotfiles-agent:latest
-  logged create --name "$SANDBOX" --cpus 4 --memory 8G \
-    --volume "$UPSTREAM:/mnt/upstream.git:ro" --volume "$DATA:/workspace" dotfiles-agent:latest
+  expected_create "$first_sandbox" "$first_data"
+  expected_create
   ok cleanup "$TASK"
   exists "$first_clone/.git"
-  exists "$FAKE_MSB_STATE/$first_sandbox"
+  equal "$(< "$FAKE_MSB_STATE/$first_sandbox")" Running
+}
+
+cache_sharing() {
+  setup first
+  ok_attach start "$TASK"
+  [[ "$STDERR" != *WARNING:* ]] || fail 'single VM warned about itself'
+  expected_create
+  local first_sandbox="$SANDBOX" first_clone="$CLONE" first_cache cache line destination
+  local caches=(pip uv npm yarn pnpm bun go-mod go-build coursier cargo/registry cargo/git gradle/caches gradle/wrapper maven/repository ivy)
+  first_cache="$(field Cache)"
+  # Exact create arguments above must not expose credential/config parents or files.
+  while IFS= read -r line; do
+    [[ "$line" == 'create '* ]] || continue
+    for destination in /root /root/.cargo /root/.gradle /root/.m2 /root/.ivy2 \
+      /root/.cargo/credentials /root/.cargo/credentials.toml /root/.cargo/config.toml \
+      /root/.gradle/gradle.properties /root/.m2/settings.xml /root/.ivy2/ivysettings.xml \
+      /root/.npmrc /root/.yarnrc.yml; do
+      [[ "$line" != *":$destination "* && "$line" != *":$destination:ro "* ]] || fail "mounted private path: $destination"
+    done
+  done < "$FAKE_MSB_LOG"
+  for cache in cargo/registry cargo/git gradle/caches gradle/wrapper maven/repository ivy; do exists "$CACHE/$cache"; done
+  # Simulate downloads in every configured cache, including the nested mounts.
+  for cache in "${caches[@]}"; do
+    mkdir -p "$CACHE/$cache"
+    printf '%s package\n' "$cache" > "$CACHE/$cache/downloaded"
+  done
+  setup second
+  ok_attach start "$TASK"
+  contains "$STDERR" "WARNING: Other VMs are running: $first_sandbox"
+  contains "$STDERR" 'cross-VM file locks are not coordinated'
+  contains "$STDERR" 'This warning does not block startup.'
+  [[ "$STDERR" != *"$SANDBOX"* ]] || fail 'warning included current VM'
+  expected_create
+  equal "$(field Cache)" "$first_cache"
+  equal "$(< "$FAKE_MSB_STATE/$first_sandbox")" Running
+  equal "$(< "$FAKE_MSB_STATE/$SANDBOX")" Running
+  equal "$(count_command create)" 2
+  ok stop first
+  equal "$(< "$FAKE_MSB_STATE/$first_sandbox")" Stopped
+  equal "$(< "$FAKE_MSB_STATE/$SANDBOX")" Running
+  ok_attach resume first
+  contains "$STDERR" "WARNING: Other VMs are running: $SANDBOX"
+  equal "$(< "$FAKE_MSB_STATE/$first_sandbox")" Running
+  equal "$(< "$FAKE_MSB_STATE/$SANDBOX")" Running
+  ok_attach resume "$TASK"
+  contains "$STDERR" "WARNING: Other VMs are running: $first_sandbox"
+  equal "$(count_command create)" 2
+  ok stop first
+  ok_attach resume "$TASK"
+  [[ "$STDERR" != *WARNING:* ]] || fail 'stopped VM triggered warning'
+  printf 'Paused\n' > "$FAKE_MSB_STATE/$first_sandbox"
+  ok_attach resume "$TASK"
+  [[ "$STDERR" != *WARNING:* ]] || fail 'paused VM triggered warning'
+  printf 'Running\n' > "$FAKE_MSB_STATE/unrelated-vm"
+  ok_attach resume "$TASK"
+  contains "$STDERR" 'WARNING: Other VMs are running: unrelated-vm'
+  [[ "$STDERR" != *"$first_sandbox"* ]] || fail 'warning included paused VM'
+  printf 'Starting\n' > "$FAKE_MSB_STATE/unrelated-vm"
+  ok_attach resume "$TASK"
+  contains "$STDERR" 'WARNING: Other VMs are running: unrelated-vm'
+  export FAKE_MSB_FAIL_INSPECT_NAME=unrelated-vm
+  ok_attach resume "$TASK"
+  contains "$STDERR" 'WARNING: Cannot inspect VM unrelated-vm; shared cache concurrency risk is unknown.'
+  logged inspect unrelated-vm --format json
+  unset FAKE_MSB_FAIL_INSPECT_NAME
+  rm -- "$FAKE_MSB_STATE/unrelated-vm"
+  ok_attach resume first
+  contains "$STDERR" "WARNING: Other VMs are running: $SANDBOX"
+  ok cleanup "$TASK"
+  absent "$TASK_DIR"
+  exists "$first_clone/.git"
+  equal "$(< "$FAKE_MSB_STATE/$first_sandbox")" Running
+  for cache in "${caches[@]}"; do equal "$(< "$CACHE/$cache/downloaded")" "$cache package"; done
+  setup first
+  ok cleanup "$TASK" --discard
+  absent "$TASK_DIR"
+  absent "$FAKE_MSB_STATE/$first_sandbox"
+  for cache in "${caches[@]}"; do equal "$(< "$CACHE/$cache/downloaded")" "$cache package"; done
+  setup second
+  ok start "$TASK"
+  expected_create
+  equal "$(count_command create)" 3
+  for cache in "${caches[@]}"; do equal "$(< "$CACHE/$cache/downloaded")" "$cache package"; done
+}
+
+cache_reuse() {
+  setup
+  local uncreated_cache="$CACHE"
+  if git config --file "$META" --get task.cacheDirectory; then fail 'setup pinned cache before creation'; fi
+  CACHE="$CASE/created-cache"
+  render
+  ok start "$TASK"
+  expected_create
+  absent "$uncreated_cache"
+  local original_cache="$CACHE" action before
+  equal "$(git config --file "$META" --get task.cacheDirectory)" "$original_cache"
+  before="$(snapshot)"
+  CACHE="$CASE/reconfigured-cache"
+  values[3]=reconfigured-agent:latest
+  values[4]=2
+  values[5]=512M
+  render
+  for action in start resume stop cleanup; do
+    reject 'cache directory differs from task setup; restore it before stopping or cleaning up' "$action" "$TASK"
+    equal "$(git config --file "$META" --get task.cacheDirectory)" "$original_cache"
+    equal "$(< "$FAKE_MSB_STATE/$SANDBOX")" Running
+    absent "$CACHE"
+    preserved
+  done
+  CACHE="$original_cache"
+  render
+  equal "$(snapshot)" "$before"
+  ok stop "$TASK"
+  exists "$CACHE"
+  ok resume "$TASK"
+  ok start "$TASK"
+  equal "$(count_command create)" 1
+  exists "$CACHE"
+  rm -- "$FAKE_MSB_STATE/$SANDBOX"
+  ok start "$TASK"
+  expected_create "$SANDBOX" "$DATA" 2 512M reconfigured-agent:latest
+  equal "$(count_command create)" 2
+  exists "$CACHE"
+  ok cleanup "$TASK"
+  absent "$TASK_DIR"
+  exists "$CACHE"
+}
+
+cache_lazy_creation() {
+  ok --help
+  absent "$CACHE"
+  ok --print-image
+  absent "$CACHE"
+  setup
+  absent "$CACHE"
+  if git config --file "$META" --get task.cacheDirectory; then fail 'setup pinned cache before creation'; fi
+  ok cleanup "$TASK" --dry-run
+  absent "$CACHE"
+  ok cleanup "$TASK" --discard --dry-run
+  absent "$CACHE"
+  ok cleanup "$TASK"
+  absent "$CACHE"
+  equal "$(count_command create)" 0
+  setup symlinked-cache
+  local cache target="$CASE/cache-symlink-target"
+  mkdir -p "$target"
+  printf 'untouched\n' > "$target/marker"
+  for cache in cargo/registry cargo/git gradle/caches gradle/wrapper maven/repository ivy; do
+    mkdir -p "$CACHE/$(dirname "$cache")"
+    # Earlier refusal attempts may have created preceding cache subdirectories.
+    if [ -d "$CACHE/$cache" ]; then rmdir "$CACHE/$cache"; fi
+    ln -s -- "$target" "$CACHE/$cache"
+    reject 'refusing symlinked package cache directory' start "$TASK"
+    equal "$(count_command create)" 0
+    if git config --file "$META" --get task.cacheDirectory; then fail 'symlink refusal pinned cache'; fi
+    equal "$(< "$target/marker")" untouched
+    [ -L "$CACHE/$cache" ] || fail 'cache symlink removed'
+    preserved
+    rm -- "$CACHE/$cache"
+  done
+  ok start "$TASK"
+  expected_create
+}
+
+cache_start_failure() {
+  setup
+  local operation="${CASE_NAME#cache_start_failure_}" first_sandbox="$SANDBOX" first_meta="$META"
+  export FAKE_MSB_FAIL="$operation"
+  reject "$operation failure" start "$TASK"
+  preserved
+  if [ "$operation" = ls ]; then
+    absent "$CACHE"
+    if git config --file "$META" --get task.cacheDirectory; then fail 'inspection failure pinned cache before creation'; fi
+  fi
+  unset FAKE_MSB_FAIL
+  setup second
+  ok start "$TASK"
+  expected_create
+  equal "$(< "$FAKE_MSB_STATE/$SANDBOX")" Running
+  exists "$first_meta"
+  if [ "$operation" = inspect ] || [ "$operation" = exec ]; then
+    equal "$(< "$FAKE_MSB_STATE/$first_sandbox")" Running
+  else
+    absent "$FAKE_MSB_STATE/$first_sandbox"
+  fi
+  ok start test_task
+  equal "$(< "$FAKE_MSB_STATE/$first_sandbox")" Running
+  equal "$(< "$FAKE_MSB_STATE/$SANDBOX")" Running
+}
+
+cache_missing_resume() {
+  setup
+  reject 'sandbox is absent' resume "$TASK"
+  absent "$CACHE"
+  if git config --file "$META" --get task.cacheDirectory; then fail 'missing resume pinned cache before creation'; fi
+  equal "$(count_command create)" 0
+  ok stop "$TASK"
+  absent "$CACHE"
+}
+
+cache_overlap() {
+  local private relation root before
+  private="${CASE_NAME#cache_overlap_}"
+  relation="${private##*_}"
+  private="${private%_*}"
+  case "$private" in
+    repo) root="$HOST" ;;
+    workspace) values[0]="$CASE/private-workspace/root"; root="${values[0]}" ;;
+    upstream) values[1]="$CASE/private-upstream/root"; root="${values[1]}" ;;
+  esac
+  case "$relation" in
+    equal) CACHE="$root" ;;
+    descendant) CACHE="$root/package-cache" ;;
+    ancestor) CACHE="$(dirname "$root")" ;;
+  esac
+  render
+  before="$(git -C "$HOST" show-ref)"
+  reject 'package cache must not overlap the host repository, workspace, or upstream directories' start rejected
+  equal "$(count_command create)" 0
+  equal "$(count_command ls)" 0
+  equal "$(git -C "$HOST" show-ref)" "$before"
+  absent "${values[0]}"
+  absent "${values[1]}"
+  if [ "$relation" = descendant ]; then absent "$CACHE"; fi
 }
 
 repo_identity() {
@@ -273,6 +533,7 @@ explicit_branch() {
   equal "$(git -C "$HOST" rev-parse HEAD)" "$source"
   equal "$(git -C "$CLONE" rev-parse HEAD)" "$source"
   equal "$(git config --file "$META" --get task.sourceBranch)" "$BRANCH"
+  if [ "$action" = start ]; then ok stop "$TASK"; fi
   ok "$action" 'Existing Task'
   task_fields
   equal "$BRANCH" existing_task
@@ -664,6 +925,9 @@ lifecycle_failure() {
   reject "${operation} failure" cleanup "$TASK" --discard
   preserved
   exists "$FAKE_MSB_STATE/$SANDBOX"
+  if [ "$operation" != rm ]; then
+    reject "${operation} failure" stop "$TASK"
+  fi
   if [ "$operation" != rm ]; then equal "$(count_command rm)" 0; fi
   if [ "$operation" = ls ]; then
     equal "$(count_command stop)" 0
@@ -673,6 +937,7 @@ lifecycle_failure() {
     equal "$(count_command create)" 1
   fi
   unset FAKE_MSB_FAIL
+  ok stop "$TASK"
   ok cleanup "$TASK" --discard
   absent "$TASK_DIR"
 }
@@ -838,6 +1103,7 @@ transition_failure() {
     equal "$(count_command rm)" 0
   fi
   unset FAKE_MSB_FAIL
+  ok stop "$TASK"
   ok cleanup "$TASK" --discard
 }
 
@@ -846,6 +1112,7 @@ transition_verification() {
   ok start "$TASK"
   export FAKE_MSB_NO_TRANSITION=stop
   reject 'sandbox did not stop' cleanup "$TASK" --discard
+  reject 'sandbox did not stop' stop "$TASK"
   preserved
   equal "$(count_command rm)" 0
   equal "$(< "$FAKE_MSB_STATE/$SANDBOX")" Running
@@ -863,6 +1130,8 @@ transition_verification() {
   reject 'transitioning or has unknown status' cleanup "$TASK" --discard
   equal "$(count_command rm)" 0
   preserved
+  printf 'Running\n' > "$FAKE_MSB_STATE/$SANDBOX"
+  ok stop "$TASK"
 }
 
 signed_push() {
@@ -918,7 +1187,7 @@ interactive_lock() {
   preserved
   ok resume "$TASK"
   equal "$(count_command exec)" 2
-  equal "$(count_command ls)" 4
+  equal "$(count_command ls)" 6
   equal "$(count_command start)" 0
   equal "$(count_command create)" 1
 }
@@ -928,6 +1197,7 @@ configured_settings() {
   export CODE_AGENT_WORKSPACES_DIR=/wrong CODE_AGENT_UPSTREAM_DIR=/wrong
   export CODE_AGENT_SANDBOX_PREFIX=wrong CODE_AGENT_CPUS=99 CODE_AGENT_MEMORY=99G
   export CODE_AGENT_IMAGE=wrong:latest
+  export CODE_AGENT_CACHE_DIR=/wrong CODE_AGENT_CACHE_DIRECTORY=/wrong
   OUTPUT="$(bash "$SCRIPT" --print-image)"
   equal "$OUTPUT" 'custom-agent:configured'
   OUTPUT="$(FAKE_MSB_IMAGE=custom-agent:configured bash "$TEST_DIR/../../../make.sh" image 2>&1)" || fail 'image build integration failed'
@@ -938,9 +1208,11 @@ configured_settings() {
   contains "$UPSTREAM" "$CASE/upstream with spaces/"
   contains "$SANDBOX" custom-prefix-
   ok start "$TASK"
-  logged create --name "$SANDBOX" --cpus 2 --memory 512M \
-    --volume "$UPSTREAM:/mnt/upstream.git:ro" --volume "$DATA:/workspace" custom-agent:configured
+  equal "$CACHE" "$CASE/package cache with ' quotes"
+  expected_create "$SANDBOX" "$DATA" 2 512M custom-agent:configured
+  exists "$CACHE"
   ok cleanup "$TASK"
+  exists "$CACHE"
 }
 
 command_help() {
@@ -982,6 +1254,7 @@ command_help() {
   equal "$(count_command ls)" 0
   absent "$CASE/workspaces"
   absent "$CASE/upstream"
+  absent "$CACHE"
   equal "$(git -C "$CASE/repositories/project" show-ref)" "$before"
 }
 
@@ -994,20 +1267,15 @@ if [ "${1:-}" = --case ]; then
   export GIT_CONFIG_GLOBAL="$CASE/gitconfig"
   # Render the same shell-escaped settings that Home Manager bakes into the command.
   SCRIPT="$CASE/bin/code-agent"
-  template="$(< "$TEMPLATE")"
-  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory)
-  values=("$CASE/workspaces" "$CASE/upstream" code-agent dotfiles-agent:latest 4 8G)
+  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory cacheDirectory)
+  values=("$CASE/workspaces" "$CASE/upstream" code-agent dotfiles-agent:latest 4 8G "$CASE/package-cache")
   if [ "$CASE_NAME" = configured_settings ]; then
-    values=("$CASE/workspaces with ' quotes" "$CASE/upstream with spaces" custom-prefix custom-agent:configured 2 512M)
+    values=("$CASE/workspaces with ' quotes" "$CASE/upstream with spaces" custom-prefix custom-agent:configured 2 512M "$CASE/package cache with ' quotes")
   fi
-  for index in "${!keys[@]}"; do
-    printf -v value '%q' "${values[$index]}"
-    template="${template//\@${keys[$index]}\@/$value}"
-  done
-  printf '%s\n' "$template" > "$SCRIPT"
-  chmod +x "$SCRIPT"
+  CACHE="${values[6]}"
+  render
   export FAKE_MSB_STATE="$CASE/msb-state" FAKE_MSB_LOG="$CASE/msb.log"
-  unset FAKE_MSB_FAIL FAKE_MSB_NO_TRANSITION FAKE_MSB_EXEC_LOCK FAKE_MSB_EXEC_SCRIPT FAKE_MSB_EXEC_TASK
+  unset FAKE_MSB_FAIL FAKE_MSB_FAIL_INSPECT_NAME FAKE_MSB_NO_TRANSITION FAKE_MSB_EXEC_LOCK FAKE_MSB_EXEC_SCRIPT FAKE_MSB_EXEC_TASK
   : > "$FAKE_MSB_LOG"
   # The tracked fixture need not have its executable bit set.
   cp -- "$TEST_DIR/fake-msb" "$CASE/bin/msb"
@@ -1024,6 +1292,8 @@ if [ "${1:-}" = --case ]; then
     ls_failure|stop_failure|rm_failure) lifecycle_failure ;;
     inspect_failure|start_failure|resume_failure) transition_failure ;;
     symlink_parent|symlink_clone|symlink_git) symlink_refusal ;;
+    cache_overlap_*) cache_overlap ;;
+    cache_start_failure_*) cache_start_failure ;;
     *) "$CASE_NAME" ;;
   esac
   exit 0
@@ -1033,7 +1303,13 @@ fi
 command -v jq >/dev/null 2>&1 || fail 'jq is required'
 ROOT="$(mktemp -d "${TMPDIR:-/tmp}/code-agent-lifecycle.XXXXXXXX")"
 trap 'rm -rf -- "$ROOT"' EXIT
-tests=(roundtrip reuse mount_isolation repo_identity task_identity main_task rebased_source
+tests=(roundtrip reuse mount_isolation cache_sharing cache_reuse cache_lazy_creation
+  cache_missing_resume cache_start_failure_ls cache_start_failure_create
+  cache_start_failure_inspect cache_start_failure_exec
+  cache_overlap_repo_equal cache_overlap_repo_descendant cache_overlap_repo_ancestor
+  cache_overlap_workspace_equal cache_overlap_workspace_descendant cache_overlap_workspace_ancestor
+  cache_overlap_upstream_equal cache_overlap_upstream_descendant cache_overlap_upstream_ancestor
+  repo_identity task_identity main_task rebased_source
   optional_task slash_branch main_prompt_setup main_prompt_start explicit_branch_setup explicit_branch_start
   missing_task dirty_handover staged_handover untracked_handover divergent_sync noncurrent_sync
   other_worktree_sync dirty_clone_sync repeated_sync

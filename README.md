@@ -206,6 +206,7 @@ dotfiles.agentSandbox = {
   enabled = true;
   workspaceDirectory = "${config.home.homeDirectory}/development/agent/workspaces";
   upstreamDirectory = "${config.home.homeDirectory}/development/agent/upstream-ro";
+  cacheDirectory = "${config.home.homeDirectory}/development/agent/package-cache";
   sandboxPrefix = "code-agent";
   image = "dotfiles-agent:latest";
   cpus = 4;
@@ -221,6 +222,7 @@ All settings except `enabled` are optional and have these defaults:
 | `image` | `dotfiles-agent:latest` |
 | `upstreamDirectory` | `<homeDirectory>/development/agent/upstream-ro` |
 | `workspaceDirectory` | `<homeDirectory>/development/agent/workspaces` |
+| `cacheDirectory` | `<homeDirectory>/development/agent/package-cache` |
 | `sandboxPrefix` | `code-agent` |
 | `cpus` | `4` |
 | `memory` | `8G` |
@@ -234,6 +236,85 @@ microsandbox size syntax such as `8G` or `512M`.
 Keep paths and the sandbox prefix unchanged until existing tasks are cleaned
 up. CPU, memory, and image changes apply to newly created sandboxes, not
 existing ones.
+
+### Shared Package Cache
+
+New sandboxes mount `cacheDirectory` read-write at `/cache`. All tasks and
+repositories using that directory reuse downloads, and task cleanup never
+removes the cache. Use a dedicated agent cache, not your normal host package
+directories. It must not overlap the host repository, workspace, or upstream
+directories.
+
+| Tool | Shared Location Inside Sandbox |
+| --- | --- |
+| uv | `/cache/uv` (copy link mode for cross-volume installs) |
+| npm | `/cache/npm` |
+| pip | `/cache/pip` |
+| Yarn (versions honoring `YARN_CACHE_FOLDER`) | `/cache/yarn` |
+| pnpm (versions honoring `npm_config_store_dir`) | `/cache/pnpm` |
+| Bun | `/cache/bun` |
+| Go modules and build cache | `/cache/go-mod`, `/cache/go-build` |
+| Coursier | `/cache/coursier` |
+| Cargo | `/root/.cargo/registry`, `/root/.cargo/git` |
+| Gradle | `/root/.gradle/caches`, `/root/.gradle/wrapper` |
+| Maven | `/root/.m2/repository` |
+| Ivy | `/root/.ivy2/cache` |
+
+Cache environment variables are configured on sandbox creation. Credentials,
+user configuration, and home directories are not shared wholesale. Only the
+listed subdirectories are mounted: Cargo credentials/config, Gradle properties,
+and Maven settings remain private. Gradle caches can nevertheless contain
+compiled project scripts (including embedded secrets) and cached task outputs.
+Do not use this shared cache across trust boundaries.
+Project dependencies, virtualenvs, and Cargo target outputs remain task-local.
+These settings do not install additional package
+managers or make the Nix store writable/shared. Project-specific tool settings
+can override cache locations.
+
+Existing sandboxes retain their original mounts and environment. To enable
+caching for an old sandbox, preserve/sync its work, clean it up, and start a
+new task sandbox. Keep `cacheDirectory` unchanged until its tasks are cleaned up.
+
+For Python projects, run `uv sync --locked` normally inside each task. When
+`uv.lock` introduces a new package version, its first use populates the shared
+cache. Later VMs with compatible Python/platform/cache versions can reuse the
+artifact without downloading it again. HTTP revalidation, cache-format changes,
+explicit refreshes, and missing artifacts can still cause network requests.
+Each task keeps its own `.venv`; `UV_LINK_MODE=copy` avoids cross-volume hardlinks
+and keeps installed files independent of cached artifacts. Managed Python
+installations and `uv tool` environments are not shared by this configuration.
+
+Multiple task VMs can use the cache simultaneously. uv documents its artifact
+cache as append-only and safe for concurrent readers/writers; npm's content cache
+also supports lockless concurrency. Simultaneous first-time downloads or builds
+may duplicate work, but subsequent tasks reuse populated entries. This is not
+a promise of exactly one download or build across VMs. Other package managers
+may rely on locks that are not visible across VMs and can corrupt shared caches.
+Cargo's package-cache lock files also remain private. On every start/resume,
+`code-agent` warns if another VM is Running or Starting, but does not block.
+The check conservatively includes unrelated VMs and is best-effort, not a
+concurrency guarantee; concurrent starts or later external state changes can
+race the check. Do not enable centralized
+shared uv project environments: installation-target locks must stay task-local.
+
+Every agent with this mount can read, modify, or delete the cache, including
+cached executable artifacts. This trades isolation for reuse: do not share it
+across trust boundaries or put secrets there. Microsandbox directory mounts
+do not coordinate file locks across guests. Therefore, stop every cache-using
+VM before `uv cache clean`, `uv cache prune`, npm cache cleaning, or manual
+maintenance; uv's normal cleanup locks cannot coordinate across these VMs.
+Never delete uv cache entries manually while agents are running. There is no
+global VM lease, automatic eviction, or cache-delete subcommand.
+
+If corruption occurs, stop all cache users, clear the affected cache with its
+package manager (or reset the dedicated host cache directory), then retry the
+install/build to repopulate it. Recreate any task environment or build output
+that consumed bad artifacts. Keep the mounted directory roots present and do
+not clear caches while VMs are running.
+
+See [uv cache safety](https://docs.astral.sh/uv/concepts/cache/#cache-safety).
+
+### Task Selection
 
 Explicit task names are normalized to lower snake case: `Improve API error
 handling` selects branch `improve_api_error_handling`. Names that normalize to
