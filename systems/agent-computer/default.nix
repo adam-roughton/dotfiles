@@ -34,6 +34,10 @@ pkgs.dockerTools.streamLayeredImage {
     cp -rP ${home.config.home-files}/. home/adamr/
     chmod -R u+w home/adamr
     ln -s ${home.config.home.path} home/adamr/.nix-profile
+  '';
+  # extraCommands runs as the unprivileged build user, so ownership changes
+  # must happen under fakeroot, which also records them in the layer tarball.
+  fakeRootCommands = ''
     chown -R 1000:1000 home/adamr workspace
   '';
   config = {
