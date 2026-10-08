@@ -98,8 +98,15 @@ export NIX_CONFIG="extra-experimental-features = nix-command flakes
 sandbox = false
 keep-outputs = true
 keep-derivations = true"
+# Request submodules in the flake reference itself. With a plain "/src" the
+# flake is first fetched without submodules and, because of
+# `inputs.self.submodules`, refetched at its locked (clean-tree) revision; that
+# path fetches each submodule from its remote URL, and the container has no
+# GitHub credentials. Asking for submodules up front reads them from the
+# checked-out working tree under /src instead.
 out="$(nix build --print-out-paths \
-  --out-link /nix/var/nix/gcroots/dotfiles-agent-image "/src#$attr" "$@")"
+  --out-link /nix/var/nix/gcroots/dotfiles-agent-image \
+  "git+file:///src?submodules=1#$attr" "$@")"
 "$out"
 nix-collect-garbage >&2 || echo "warning: garbage collection of the builder store failed" >&2
 '
@@ -131,6 +138,19 @@ build_agent_image_in_container() {
     echo "cannot reach the Docker daemon; start it first (for example: colima start)" >&2
     exit 1
   }
+
+  # The container reads submodules from the working tree; an uninitialised one
+  # would make Nix fall back to cloning it from its remote URL, which needs
+  # credentials the container does not have.
+  local submodule_line
+  while IFS= read -r submodule_line; do
+    case "$submodule_line" in
+      -*)
+        echo "submodule ${submodule_line#* } is not checked out; run: git -C '$DOTFILES_DIR' submodule update --init" >&2
+        exit 1
+        ;;
+    esac
+  done < <(git -C "$DOTFILES_DIR" submodule status)
 
   echo "Building $image_system agent image in a $NIX_BUILDER_IMAGE container..." >&2
   docker run --rm --init --platform "$platform" \
