@@ -24,22 +24,27 @@ pkgs.dockerTools.streamLayeredImage {
   contents = [ contents ];
   # Install the Home Manager dotfiles (store symlinks, as Home Manager itself
   # would) and the profile they refer to, so the shell matches the
-  # workstations. Activation hooks are not run.
+  # workstations. Activation hooks are not run. dockerTools does not provide
+  # account databases, so create the sandbox user's NSS entries explicitly.
   extraCommands = ''
-    mkdir -p root workspace
+    mkdir -p etc home/adamr workspace
+    printf 'root:x:0:0:root:/root:${pkgs.zsh}/bin/zsh\nadamr:x:1000:1000:Adam Roughton:/home/adamr:${pkgs.zsh}/bin/zsh\n' > etc/passwd
+    printf 'root:x:0:\nadamr:x:1000:\n' > etc/group
     cp ${./AGENTS.md} AGENTS.md
-    cp -rP ${home.config.home-files}/. root/
-    chmod -R u+w root
-    ln -s ${home.config.home.path} root/.nix-profile
+    cp -rP ${home.config.home-files}/. home/adamr/
+    chmod -R u+w home/adamr
+    ln -s ${home.config.home.path} home/adamr/.nix-profile
+    chown -R 1000:1000 home/adamr workspace
   '';
   config = {
     Cmd = [ "${pkgs.zsh}/bin/zsh" ];
     Env = [
-      "HOME=/root"
+      "HOME=/home/adamr"
       "PATH=/bin:/sbin"
       "SHELL=${pkgs.zsh}/bin/zsh"
-      "USER=root"
+      "USER=adamr"
     ];
+    User = "1000:1000";
     WorkingDir = "/workspace";
   };
 }

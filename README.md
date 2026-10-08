@@ -110,8 +110,8 @@ configuration.
 ### Microsandbox Image
 
 Build an OCI image for agent sandboxes. The image uses the same zsh, git and
-vim configuration as the workstations (Home Manager dotfiles are installed into
-`/root`). It includes the core shell tools; the C, Python, Node.js, Rust and JVM
+vim configuration as the workstations (Home Manager dotfiles are installed for
+the `adamr` user in `/home/adamr`). It includes the core shell tools; the C, Python, Node.js, Rust and JVM
 toolchains; database clients; and the AWS, Azure and Kubernetes CLIs. Its
 package set is defined in `systems/agent-computer/home.nix`. Workstation-only
 tools are left out (`dotfiles.shell.workstation = false`), as are host

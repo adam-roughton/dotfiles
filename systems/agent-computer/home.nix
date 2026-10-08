@@ -9,8 +9,8 @@ in {
     ../../modules/vim
   ];
 
-  home.username = "root";
-  home.homeDirectory = "/root";
+  home.username = "adamr";
+  home.homeDirectory = "/home/adamr";
   home.stateVersion = "25.05";
 
   # Same zsh configuration as the workstations, without the workstation-only tools.
