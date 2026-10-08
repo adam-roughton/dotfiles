@@ -8,8 +8,8 @@ let
     name = "code-agent";
     runtimeInputs = with pkgs; [ coreutils gnused git jq ];
     text = lib.replaceStrings
-      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" ]
-      (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory cfg.cacheDirectory
+      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@rootDisk@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" ]
+      (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory cfg.rootDisk cfg.cacheDirectory
         (if cfg.copilotTokenFile == null then "" else cfg.copilotTokenFile) (builtins.toJSON cfg.opencodeConfig) opencode ])
       (builtins.readFile ./scripts/code-agent);
   };
@@ -58,6 +58,11 @@ in with lib; {
         type = types.strMatching "[1-9][0-9]*[KMG]?";
         default = "8G";
         description = "Memory allocated to new sandboxes, using microsandbox size syntax (for example 8G or 512M).";
+      };
+      rootDisk = mkOption {
+        type = types.strMatching "[1-9][0-9]*[KMG]?";
+        default = "12G";
+        description = "Writable root disk allocated to new sandboxes, using microsandbox size syntax (for example 12G or 512M).";
       };
       copilotTokenFile = mkOption {
         type = types.nullOr (types.strMatching "/[^\n:]*");

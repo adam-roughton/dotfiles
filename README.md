@@ -295,6 +295,7 @@ dotfiles.agentSandbox = {
   image = "dotfiles-agent:latest";
   cpus = 4;
   memory = "8G";
+  rootDisk = "12G";
   copilotTokenFile = "${config.home.homeDirectory}/development/agent/credentials/github-copilot-token";
   opencodeConfig = { model = "github-copilot/claude-opus-5.5"; };
 };
@@ -312,18 +313,19 @@ All settings except `enabled` are optional and have these defaults:
 | `sandboxPrefix` | `code-agent` |
 | `cpus` | `4` |
 | `memory` | `8G` |
+| `rootDisk` | `12G` |
 | `copilotTokenFile` | `null` (no Copilot secret) |
 | `opencodeConfig` | `{ autoupdate = false; share = "disabled"; }`, merged with your settings |
 
 Activate your Home Manager configuration before building the image.
 `make.sh image` reads the configured tag from `code-agent --print-image`.
 Settings are baked into the installed command; environment variables do not
-override them. Paths must be absolute, CPUs must be positive, and memory uses
-microsandbox size syntax such as `8G` or `512M`.
+override them. Paths must be absolute, CPUs must be positive, and memory and
+root-disk sizes use microsandbox syntax such as `8G` or `512M`.
 
 Keep paths and the sandbox prefix unchanged until existing tasks are cleaned
-up. CPU, memory, and image changes apply to newly created sandboxes, not
-existing ones.
+up. CPU, memory, root-disk, and image changes apply to newly created sandboxes,
+not existing ones.
 
 `opencodeConfig` is passed to new sandboxes as `OPENCODE_CONFIG_CONTENT`. It
 takes precedence over a repository's own opencode config. Set `model` there to

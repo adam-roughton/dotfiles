@@ -9,6 +9,7 @@ sandbox_prefix=@sandboxPrefix@
 image=@image@
 cpus=@cpus@
 memory=@memory@
+root_disk=@rootDisk@
 cache_directory=@cacheDirectory@
 copilot_token_file=@copilotTokenFile@
 opencode_config=@opencodeConfig@
@@ -496,6 +497,7 @@ case "$action" in
       # The token reaches msb only through its environment, never its arguments.
       CODE_AGENT_COPILOT_TOKEN="$copilot_token" msb create --name "$sandbox" --cpus "$cpus" \
         --memory "$memory" \
+        --root-disk "$root_disk" \
         --volume "$bare_repo:/mnt/upstream.git:ro" \
         --volume "$clone:/workspace" \
         --volume "$cache_root:/cache" \
