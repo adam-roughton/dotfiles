@@ -61,6 +61,17 @@ agent_system() {
   esac
 }
 
+# Prints the names of microsandboxes created from an image reference, one per
+# line. msb records the reference verbatim, so an exact match is sufficient.
+sandboxes_using_image() {
+  local image_tag="$1"
+  local sandboxes
+  sandboxes="$(msb ls --format json)" || return 1
+  jq -r --arg image "$image_tag" \
+    'if type == "array" then .[] | select(.image == $image) | .name
+     else error("unexpected msb ls output") end' <<< "$sandboxes"
+}
+
 build_attr() {
   local system_name="$1"
   local target="$2"
@@ -197,6 +208,26 @@ case "$mode" in
       echo "Microsandbox image already registered: $image_tag" >&2
       echo "Use '$0 image --force' to rebuild and replace it." >&2
       exit 0
+    fi
+    if [ "$image_exists" = true ]; then
+      # Sandboxes stay tied to the image they were created from, and msb
+      # cannot cleanly replace it under them. Check before the slow build.
+      command -v jq >/dev/null 2>&1 || {
+        echo "jq is required to check which sandboxes use $image_tag" >&2
+        exit 1
+      }
+      image_users="$(sandboxes_using_image "$image_tag")" || {
+        echo "cannot list microsandboxes; refusing to replace $image_tag" >&2
+        exit 1
+      }
+      if [ -n "$image_users" ]; then
+        echo "Refusing to replace $image_tag: it is used by these sandboxes:" >&2
+        while IFS= read -r sandbox_name; do
+          echo "  $sandbox_name" >&2
+        done <<< "$image_users"
+        echo "Remove them first with 'code-agent cleanup' (or 'msb rm --force <name>'), then retry." >&2
+        exit 1
+      fi
     fi
     image_system="$(agent_system)"
     build_dir="$(mktemp -d)"

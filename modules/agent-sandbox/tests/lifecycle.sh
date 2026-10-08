@@ -1472,6 +1472,40 @@ configured_settings() {
   exists "$CACHE"
 }
 
+image_replacement() {
+  local make="$TEST_DIR/../../../make.sh" built="$CASE/image-built"
+  # Build through a fake Linux nix on every host so no real image is built.
+  # shellcheck disable=SC2016 # The fake's own arguments expand when it runs.
+  printf '#!/usr/bin/env bash\n[ "${1:-}" != -s ] || { echo Linux; exit 0; }\nexec %q "$@"\n' \
+    "$(type -P uname)" > "$CASE/bin/uname"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" %q\n' "$CASE/bin/image-stream" > "$CASE/bin/nix"
+  printf '#!/usr/bin/env bash\n: > %q\nprintf "image tarball\\n"\n' "$built" > "$CASE/bin/image-stream"
+  chmod +x "$CASE/bin/uname" "$CASE/bin/nix" "$CASE/bin/image-stream"
+  setup
+  ok start "$TASK"
+  printf 'Stopped\n' > "$FAKE_MSB_STATE/unrelated-vm"
+  printf 'other-image:latest\n' > "$FAKE_MSB_STATE.images/unrelated-vm"
+  # A sandbox created from the tag blocks replacing it, before any build.
+  if OUTPUT="$(bash "$make" image --force 2>&1)"; then fail 'image replaced while in use'; fi
+  contains "$OUTPUT" 'Refusing to replace dotfiles-agent:latest: it is used by these sandboxes:'
+  contains "$OUTPUT" "  $SANDBOX"
+  [[ "$OUTPUT" != *unrelated-vm* ]] || fail 'sandbox using another image reported'
+  absent "$built"
+  equal "$(count_command rmi)" 0
+  equal "$(count_command load)" 0
+  # An unknown sandbox list must not be treated as empty.
+  if OUTPUT="$(FAKE_MSB_FAIL='ls' bash "$make" image --force 2>&1)"; then fail 'image replaced without sandbox list'; fi
+  contains "$OUTPUT" 'cannot list microsandboxes; refusing to replace dotfiles-agent:latest'
+  absent "$built"
+  equal "$(count_command rmi)" 0
+  ok cleanup "$TASK"
+  OUTPUT="$(bash "$make" image --force 2>&1)" || fail 'image replacement failed once unused'
+  contains "$OUTPUT" 'Registered microsandbox image: dotfiles-agent:latest'
+  exists "$built"
+  logged rmi --force dotfiles-agent:latest
+  equal "$(count_command load)" 1
+}
+
 command_help() {
   local command form before
   before="$(git -C "$HOST" show-ref)"
@@ -1581,7 +1615,7 @@ tests=(roundtrip reuse mount_isolation cache_sharing cache_reuse cache_lazy_crea
   checked_out_destination no_main lock_refusal wrong_branch paused_lifecycle
   inspect_failure start_failure resume_failure transition_verification reflog_cleanup
   stash_cleanup annotated_tag_cleanup signed_push concurrent_setup interactive_lock copilot_secret copilot_existing_sandbox
-  copilot_token_checks copilot_login configured_settings command_help)
+  copilot_token_checks copilot_login configured_settings image_replacement command_help)
 passed=0
 failed=0
 for test in "${tests[@]}"; do

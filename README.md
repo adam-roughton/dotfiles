@@ -270,6 +270,8 @@ Build and register the local microsandbox image:
 
 If the tag is already registered, this does nothing. Rebuild and replace it
 after changing the image definition or toolchain with `./make.sh image --force`.
+Replacing refuses, before building, while any sandbox was created from the tag;
+remove those sandboxes first (for example with `code-agent cleanup`).
 Configure the command through `dotfiles.agentSandbox` in your `home.nix`:
 
 ```nix

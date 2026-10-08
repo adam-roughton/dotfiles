@@ -15,12 +15,36 @@ if [ "${FAKE_MSB_FAIL:-}" = "$command" ]; then
   exit 42
 fi
 
+# Sandbox images live beside, not inside, the state directory so that `ls`
+# and status reads see only sandbox names and statuses.
+images="$FAKE_MSB_STATE.images"
+
 case "$command" in
   images)
     [ "$#" = 1 ] && [ "$1" = -q ] || exit 2
     printf '%s\n' "${FAKE_MSB_IMAGE:-dotfiles-agent:latest}"
     ;;
+  rmi)
+    [ "$#" = 2 ] && [ "$1" = --force ] || exit 2
+    ;;
+  load)
+    [ "$#" = 4 ] && [ "$1" = --input ] && [ "$3" = --tag ] || exit 2
+    [ -s "$2" ] || exit 3
+    ;;
   ls)
+    if [ "$#" = 2 ] && [ "$1" = --format ] && [ "$2" = json ]; then
+      for entry in "$FAKE_MSB_STATE"/*; do
+        [ -f "$entry" ] || continue
+        name="${entry##*/}"
+        # Tests may create sandboxes directly; msb reports unknown images as "-".
+        image=-
+        if [ -f "$images/$name" ]; then image="$(< "$images/$name")"; fi
+        jq -n --arg name "$name" --arg status "$(< "$entry")" --arg image "$image" \
+          '{name: $name, status: $status, image: $image}'
+      done | jq -s .
+      exit 0
+    fi
+    [ "$#" = 0 ] || [ "$*" = -q ] || exit 2
     for entry in "$FAKE_MSB_STATE"/*; do
       [ -f "$entry" ] || continue
       printf '%s\n' "${entry##*/}"
@@ -30,6 +54,8 @@ case "$command" in
     [ "${1:-}" = --name ] || exit 2
     name="$2"
     [ ! -e "$FAKE_MSB_STATE/$name" ] || exit 3
+    mkdir -p "$images"
+    printf '%s\n' "${!#}" > "$images/$name"
     printf 'Running\n' > "$FAKE_MSB_STATE/$name"
     ;;
   inspect)
@@ -57,6 +83,7 @@ case "$command" in
     [ -f "$FAKE_MSB_STATE/$2" ] || exit 3
     [ "$(< "$FAKE_MSB_STATE/$2")" = Stopped ] || exit 3
     rm -- "$FAKE_MSB_STATE/$2"
+    rm -f -- "$images/$2"
     ;;
   exec)
     if [ "${1:-}" = --tty ]; then shift; fi
