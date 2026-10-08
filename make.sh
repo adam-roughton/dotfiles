@@ -172,7 +172,7 @@ case "$mode" in
     if [ "$(uname -s)" = "Darwin" ]; then
       build_dir="$(mktemp -d)"
       trap 'rm -rf "$build_dir"' EXIT
-      image_path="$build_dir/agent-image.tar.gz"
+      image_path="$build_dir/agent-image.tar"
       build_agent_image_in_container "$image_system" "$image_path" "$@"
     else
       # The flake attribute already selects the target system; the host

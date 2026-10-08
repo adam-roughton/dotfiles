@@ -134,6 +134,9 @@
           agent-image = pkgs.dockerTools.buildLayeredImage {
             name = "dotfiles-agent";
             tag = "latest";
+            # `msb load` reads the archive as a plain tar and does not
+            # decompress it, so the default gzip output cannot be loaded.
+            compressor = "none";
             contents = [ contents ];
             extraCommands = ''
               mkdir -p root workspace
