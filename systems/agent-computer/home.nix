@@ -87,16 +87,21 @@ in {
   # is merged on top of it.
   programs.opencode = {
     enable = true;
-    settings.mcp.playwright = {
-      type = "local";
-      command = [
-        (lib.getExe playwrightMcp)
-        "--headless"
-        # Keep the browser profile in memory; each session starts clean.
-        "--isolated"
-        "--output-dir"
-        "/tmp/playwright-mcp"
-      ];
+    settings = {
+      # The microsandbox isolates the agent computer, so local paths outside
+      # /workspace do not need an additional OpenCode approval prompt.
+      permission.external_directory = "allow";
+      mcp.playwright = {
+        type = "local";
+        command = [
+          (lib.getExe playwrightMcp)
+          "--headless"
+          # Keep the browser profile in memory; each session starts clean.
+          "--isolated"
+          "--output-dir"
+          "/tmp/playwright-mcp"
+        ];
+      };
     };
   };
 
