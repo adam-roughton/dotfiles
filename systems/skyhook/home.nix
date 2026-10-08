@@ -10,7 +10,12 @@
     ../../modules/apps.nix
     ../../modules/dev.nix
     ../../modules/vscode
+    ../../modules/agent-sandbox
   ];
+
+  dotfiles.agentSandbox = {
+    enabled = true;
+  };
 
   home.packages = with pkgs; [
     gparted

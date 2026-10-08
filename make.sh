@@ -70,6 +70,72 @@ build_attr() {
     "$DOTFILES_DIR#$(flake_attr "$system_name").$target" "$@"
 }
 
+# Nix image used to build Linux outputs on macOS hosts.
+NIX_BUILDER_IMAGE="nixos/nix:latest"
+
+# Runs inside the builder container. Arguments: host repo path (for error
+# messages), flake attribute, then extra nix build options. Build logs go to
+# stderr; the image tarball is the only thing written to stdout.
+# shellcheck disable=SC2016
+CONTAINER_BUILD_SCRIPT='
+set -eu
+host_dir="$1"
+attr="$2"
+shift 2
+if [ ! -f /src/flake.nix ]; then
+  echo "$host_dir is not visible to the Docker VM; move it under a shared directory (colima shares \$HOME by default)" >&2
+  exit 1
+fi
+# The bind-mounted repository is owned by the host user, not container root.
+printf "[safe]\n\tdirectory = *\n" > "${HOME:-/root}/.gitconfig"
+# Unprivileged containers cannot create the Nix build sandbox.
+out="$(nix --extra-experimental-features "nix-command flakes" build \
+  --option sandbox false --no-link --print-out-paths "/src#$attr" "$@")"
+cat "$out"
+'
+
+# The agent image contains derivations that can only be built on Linux (and
+# Nix cannot run Linux builds on a macOS host), so on macOS the build runs
+# inside a Linux container. The container's /nix lives in a named Docker volume
+# so later builds reuse it. Writes the image tarball to $2.
+build_agent_image_in_container() {
+  local image_system="$1"
+  local output="$2"
+  shift 2
+
+  local platform
+  case "$image_system" in
+    aarch64-linux) platform="linux/arm64" ;;
+    x86_64-linux) platform="linux/amd64" ;;
+    *)
+      echo "unsupported image system: $image_system" >&2
+      exit 1
+      ;;
+  esac
+
+  command -v docker >/dev/null 2>&1 || {
+    echo "docker CLI is required to build the agent image on macOS (for example via colima)" >&2
+    exit 1
+  }
+  docker info >/dev/null 2>&1 || {
+    echo "cannot reach the Docker daemon; start it first (for example: colima start)" >&2
+    exit 1
+  }
+
+  echo "Building $image_system agent image in a $NIX_BUILDER_IMAGE container..." >&2
+  docker run --rm --init --platform "$platform" \
+    --volume "dotfiles-agent-image-nix-$image_system:/nix" \
+    --mount "type=bind,source=$DOTFILES_DIR,target=/src,readonly" \
+    "$NIX_BUILDER_IMAGE" \
+    sh -c "$CONTAINER_BUILD_SCRIPT" sh \
+    "$DOTFILES_DIR" "packages.$image_system.agent-image" "$@" > "$output"
+
+  [ -s "$output" ] || {
+    echo "container build produced no image" >&2
+    exit 1
+  }
+}
+
 mode="${1:-}"
 shift || true
 
@@ -103,8 +169,19 @@ case "$mode" in
       exit 0
     fi
     image_system="$(agent_system)"
-    image_path="$(nix build --system "$image_system" --no-link --print-out-paths \
-      "$DOTFILES_DIR#packages.$image_system.agent-image" "$@")"
+    if [ "$(uname -s)" = "Darwin" ]; then
+      build_dir="$(mktemp -d)"
+      trap 'rm -rf "$build_dir"' EXIT
+      image_path="$build_dir/agent-image.tar.gz"
+      build_agent_image_in_container "$image_system" "$image_path" "$@"
+    else
+      # The flake attribute already selects the target system; the host
+      # architecture matches it, so no --system override is needed. Enable
+      # flakes per-invocation so this does not depend on the host nix.conf.
+      image_path="$(nix --extra-experimental-features "nix-command flakes" \
+        build --no-link --print-out-paths \
+        "$DOTFILES_DIR#packages.$image_system.agent-image" "$@")"
+    fi
     if [ "$image_exists" = true ]; then
       msb rmi --force "$image_tag"
     fi

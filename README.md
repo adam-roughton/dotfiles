@@ -92,8 +92,21 @@ loading into microsandbox:
 ./make.sh image
 ```
 
+On Linux hosts `make.sh image` builds natively with the host's Nix (flakes are
+enabled for that invocation, so `nix.conf` changes are not required) and does
+not need Docker or trusted-user settings.
+
+On macOS the image contents must still be built on Linux, so `make.sh image`
+runs the Nix build inside a `nixos/nix` container and loads the resulting
+tarball. This needs a running Docker daemon (for example `colima start`) and
+the repository must be in a directory shared with the Docker VM (colima shares
+`$HOME` by default). It does not need a Nix Linux builder or trusted-user
+settings on the host. The container's `/nix` store is kept in the Docker volume
+`dotfiles-agent-image-nix-<system>` so rebuilds are incremental; remove it with
+`docker volume rm` to reclaim space.
+
 The image supports `aarch64-linux` and `x86_64-linux`. To build a specific
-system directly:
+system directly on a Linux host (or a host with a Linux builder configured):
 
 ```sh
 nix build .#packages.aarch64-linux.agent-image
@@ -147,7 +160,11 @@ Remove old Nix garbage and optimise the store:
 ## Code Agent
 
 The `agent-sandbox` module provides one command for the complete microsandbox
-lifecycle, with `ca` as an alias in both Bash and Zsh:
+lifecycle, with `ca` as an alias in both Bash and Zsh. It is enabled on
+`superposition` (macOS) and `skyhook` (Linux) and behaves the same on both. It
+needs the microsandbox CLI (`msb`) on `PATH`. On `superposition` it is installed
+through Homebrew, but on Linux you have to install it yourself, and microsandbox
+needs access to `/dev/kvm`.
 
 ```text
 code-agent {setup|start|resume|stop|status|sync|cleanup} [TASK] [--discard] [--dry-run]
