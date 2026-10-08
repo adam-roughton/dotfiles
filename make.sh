@@ -70,12 +70,14 @@ build_attr() {
     "$DOTFILES_DIR#$(flake_attr "$system_name").$target" "$@"
 }
 
-# Nix image used to build Linux outputs on macOS hosts.
-NIX_BUILDER_IMAGE="nixos/nix:latest"
+# Nix image used to build Linux outputs on macOS hosts. Pinned so Docker does
+# not pull (and keep) a new builder image whenever `latest` moves.
+NIX_BUILDER_IMAGE="nixos/nix:2.35.2"
 
 # Runs inside the builder container. Arguments: host repo path (for error
-# messages), flake attribute, then extra nix build options. Build logs go to
-# stderr; the image tarball is the only thing written to stdout.
+# messages), flake attribute, then extra nix build options. The attribute must
+# be an image stream script; build logs go to stderr and the image tarball is
+# the only thing written to stdout.
 # shellcheck disable=SC2016
 CONTAINER_BUILD_SCRIPT='
 set -eu
@@ -88,10 +90,18 @@ if [ ! -f /src/flake.nix ]; then
 fi
 # The bind-mounted repository is owned by the host user, not container root.
 printf "[safe]\n\tdirectory = *\n" > "${HOME:-/root}/.gitconfig"
-# Unprivileged containers cannot create the Nix build sandbox.
-out="$(nix --extra-experimental-features "nix-command flakes" build \
-  --option sandbox false --no-link --print-out-paths "/src#$attr" "$@")"
-cat "$out"
+# Unprivileged containers cannot create the Nix build sandbox. keep-outputs and
+# keep-derivations make the GC root below also retain the build-time inputs of
+# the current image, so rebuilds stay incremental while store paths from older
+# builds are collected.
+export NIX_CONFIG="extra-experimental-features = nix-command flakes
+sandbox = false
+keep-outputs = true
+keep-derivations = true"
+out="$(nix build --print-out-paths \
+  --out-link /nix/var/nix/gcroots/dotfiles-agent-image "/src#$attr" "$@")"
+"$out"
+nix-collect-garbage >&2 || echo "warning: garbage collection of the builder store failed" >&2
 '
 
 # The agent image contains derivations that can only be built on Linux (and
@@ -169,18 +179,20 @@ case "$mode" in
       exit 0
     fi
     image_system="$(agent_system)"
+    build_dir="$(mktemp -d)"
+    trap 'rm -rf "$build_dir"' EXIT
+    image_path="$build_dir/agent-image.tar"
     if [ "$(uname -s)" = "Darwin" ]; then
-      build_dir="$(mktemp -d)"
-      trap 'rm -rf "$build_dir"' EXIT
-      image_path="$build_dir/agent-image.tar"
       build_agent_image_in_container "$image_system" "$image_path" "$@"
     else
       # The flake attribute already selects the target system; the host
       # architecture matches it, so no --system override is needed. Enable
       # flakes per-invocation so this does not depend on the host nix.conf.
-      image_path="$(nix --extra-experimental-features "nix-command flakes" \
+      # The output is a script that streams the image tarball.
+      image_stream="$(nix --extra-experimental-features "nix-command flakes" \
         build --no-link --print-out-paths \
         "$DOTFILES_DIR#packages.$image_system.agent-image" "$@")"
+      "$image_stream" > "$image_path"
     fi
     if [ "$image_exists" = true ]; then
       msb rmi --force "$image_tag"

@@ -15,8 +15,8 @@
       # scala
       jdk17 sbt scala
 
-      # sh
-      haskellPackages.ShellCheck
+      # sh (static binary; haskellPackages.ShellCheck would pull in all of GHC)
+      shellcheck
 
       # python
       python3

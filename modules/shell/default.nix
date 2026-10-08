@@ -8,8 +8,10 @@ let
   extraAliasesStr = concatStringsSep "\n" (
     mapAttrsToList (k: v: "alias ${k}=${escapeShellArg v}") cfg.extraAliases
   );
-  profileText = ''
+  # NIX_PATH pins the full nixpkgs source into the closure, so only workstations get it.
+  profileText = optionalString cfg.workstation ''
     export NIX_PATH=nixpkgs=${pkgs.path}
+  '' + ''
     source ${./profile}
   '';
 in {
@@ -28,46 +30,61 @@ in {
         type = types.attrsOf types.str;
         default = {};
       };
+      workstation = mkOption {
+        type = types.bool;
+        default = true;
+        description = ''
+          Install the interactive workstation tooling (password store, GnuPG, media and
+          network diagnostics, document tools, nix helpers) and pin NIX_PATH. Disable for
+          headless environments such as agent images; the zsh configuration is unchanged.
+        '';
+      };
     };
   };
 
   config = {
-    home.packages = with pkgs; [ 
+    home.packages = with pkgs; [
       zsh zsh-syntax-highlighting nix-zsh-completions
-      ncdu htop zenith
-      zip unzip file hexedit 
+      ncdu htop
+      zip unzip file
 
-      findutils ripgrep fd tree fzf 
-      autojump ranger eza gettext entr 
-  
-      watch pv moreutils multitail miller jq direnv dos2unix up
-      
-      paperkey (pass.withExtensions(ext: [ext.pass-otp])) gnupg openssl zbar 
-      ascii translate-shell units tokei
-      graphviz todo-txt-cli 
+      findutils ripgrep fd tree fzf
+      autojump eza gettext entr
 
-      cmatrix termdown 
-      
-      dnsutils curl wget mtr nmap w3m httpie
-      rsync docker-compose 
+      watch pv moreutils miller jq direnv dos2unix
+      openssl tokei
 
-      haskellPackages.pandoc 
-      
+      dnsutils curl wget rsync
+
       sqlite-interactive
-
-      awscli2 (pkgs.callPackage ./aws-console.nix {}) 
-    
-      # nix
-      nix-prefetch-scripts patchelf
 
       (runCommand "scripts" { src = ./scripts; } ''
         mkdir -p $out/bin
         cp $src/* $out/bin
         chmod +x $out/bin/*
       '')
+    ] ++ lib.optionals cfg.workstation ([
+      zenith hexedit ranger multitail up
+
+      paperkey (pass.withExtensions(ext: [ext.pass-otp])) gnupg zbar
+      ascii translate-shell units
+      graphviz todo-txt-cli
+
+      cmatrix termdown
+
+      mtr nmap w3m httpie
+      docker-compose
+
+      # Static binary; haskellPackages.pandoc would pull in all of GHC.
+      pandoc
+
+      awscli2 (pkgs.callPackage ./aws-console.nix {})
+
+      # nix
+      nix-prefetch-scripts patchelf
     ] ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
-      bashmount 
-    ]; 
+      bashmount
+    ]);
 
     programs.bash.enable = true;
     programs.bash.shellAliases.ca = "code-agent";
@@ -171,7 +188,7 @@ in {
       enable = true;
       enableZshIntegration = true;
     };
-    programs.password-store = {
+    programs.password-store = mkIf cfg.workstation {
       enable = true;
       package = pkgs.pass.withExtensions(ext: [ext.pass-otp]);
       settings = {

@@ -3,7 +3,11 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nixos-hardware.url = "github:NixOS/nixos-hardware/master";
+    nixos-hardware = {
+      url = "github:NixOS/nixos-hardware/master";
+      # Only its modules are used; don't fetch a second nixpkgs for it.
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
 
     home-manager = {
       url = "github:nix-community/home-manager";
@@ -131,17 +135,22 @@
             pathsToLink = [ "/bin" "/sbin" "/lib" "/share" ];
           };
         in {
-          agent-image = pkgs.dockerTools.buildLayeredImage {
+          # A script that writes the image to stdout as an uncompressed tar
+          # (which is what `msb load` expects). Unlike buildLayeredImage it
+          # does not keep a full copy of the image in the Nix store.
+          agent-image = pkgs.dockerTools.streamLayeredImage {
             name = "dotfiles-agent";
             tag = "latest";
-            # `msb load` reads the archive as a plain tar and does not
-            # decompress it, so the default gzip output cannot be loaded.
-            compressor = "none";
             contents = [ contents ];
+            # Install the Home Manager dotfiles (store symlinks, as Home Manager
+            # itself would) and the profile they refer to, so the shell matches
+            # the workstations. Activation hooks are not run.
             extraCommands = ''
               mkdir -p root workspace
               cp ${./systems/agent-computer/AGENTS.md} AGENTS.md
-              cp ${./systems/agent-computer/AGENTS.md} root/AGENTS.md
+              cp -rP ${home.config.home-files}/. root/
+              chmod -R u+w root
+              ln -s ${home.config.home.path} root/.nix-profile
             '';
             config = {
               Cmd = [ "${pkgs.zsh}/bin/zsh" ];

@@ -84,33 +84,45 @@ configuration.
 
 ### Microsandbox Image
 
-Build an OCI image containing the shell and development packages from this
-repository. The image is built for the current host system and is suitable for
-loading into microsandbox:
+Build an OCI image for agent sandboxes. The image uses the same zsh, git and
+vim configuration as the workstations (Home Manager dotfiles are installed into
+`/root`). It includes the core shell tools; the C, Python, Node.js, Rust and JVM
+toolchains; database clients; and the AWS, Azure and Kubernetes CLIs. Its
+package set is defined in `systems/agent-computer/home.nix`. Workstation-only
+tools are left out (`dotfiles.shell.workstation = false`), as are host
+credentials such as the GPG signing key. The image is built for the current host
+system and is suitable for loading into microsandbox:
 
 ```sh
 ./make.sh image
 ```
+
+The `agent-image` flake output is a script that streams the image as an
+uncompressed tar (the format `msb load` reads), so a full copy of the image is
+never stored in `/nix/store`. `make.sh image` writes the stream to a temporary
+file, loads it, and deletes the file.
 
 On Linux hosts `make.sh image` builds natively with the host's Nix (flakes are
 enabled for that invocation, so `nix.conf` changes are not required) and does
 not need Docker or trusted-user settings.
 
 On macOS the image contents must still be built on Linux, so `make.sh image`
-runs the Nix build inside a `nixos/nix` container and loads the resulting
-tarball. This needs a running Docker daemon (for example `colima start`) and
-the repository must be in a directory shared with the Docker VM (colima shares
-`$HOME` by default). It does not need a Nix Linux builder or trusted-user
-settings on the host. The container's `/nix` store is kept in the Docker volume
-`dotfiles-agent-image-nix-<system>` so rebuilds are incremental; remove it with
-`docker volume rm` to reclaim space.
+runs the Nix build inside a pinned `nixos/nix` container and loads the
+resulting tarball. This needs a running Docker daemon (for example
+`colima start`) and the repository must be in a directory shared with the Docker
+VM (colima shares `$HOME` by default). It does not need a Nix Linux builder or
+trusted-user settings on the host. The container's `/nix` store is kept in the
+Docker volume `dotfiles-agent-image-nix-<system>` so rebuilds are incremental.
+After each build the current image (and its build inputs) is kept as a GC root
+and everything else in that store is garbage-collected. Remove the volume with
+`docker volume rm` to reclaim all of it.
 
 The image supports `aarch64-linux` and `x86_64-linux`. To build a specific
 system directly on a Linux host (or a host with a Linux builder configured):
 
 ```sh
-nix build .#packages.aarch64-linux.agent-image
-nix build .#packages.x86_64-linux.agent-image
+"$(nix build --no-link --print-out-paths .#packages.aarch64-linux.agent-image)" > agent-image.tar
+"$(nix build --no-link --print-out-paths .#packages.x86_64-linux.agent-image)" > agent-image.tar
 ```
 
 The default command starts zsh in `/workspace`. Mount a project directory
@@ -571,7 +583,7 @@ directly with Nix:
 nix flake show --all-systems
 nix build .#nixosConfigurations.skyhook.config.system.build.toplevel
 nix build .#nixosConfigurations.rpi3.config.system.build.sdImage
-nix build .#packages.aarch64-linux.agent-image
+nix build .#packages.aarch64-linux.agent-image  # image stream script
 home-manager switch --flake .#adamr@skyhook-ho
 darwin-rebuild switch --flake .#superposition
 ```
