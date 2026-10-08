@@ -87,7 +87,8 @@ logged() {
   fail "missing msb invocation: $expected"
 }
 expected_create() {
-  logged create --name "${1:-$SANDBOX}" --cpus "${3:-4}" --memory "${4:-8G}" \
+  logged create --name "${1:-$SANDBOX}" --cpus "${3:-4}" --memory "${4:-8G}" --root-disk "${values[6]}" \
+    --net "${values[7]}" \
     --volume "$UPSTREAM:/mnt/upstream.git:ro" --volume "${2:-$CLONE}:/workspace" \
     --volume "$CACHE:/cache" \
     --volume "$CACHE/cargo/registry:/root/.cargo/registry" \
@@ -102,13 +103,13 @@ expected_create() {
     --env npm_config_store_dir=/cache/pnpm --env BUN_INSTALL_CACHE_DIR=/cache/bun \
     --env GOMODCACHE=/cache/go-mod --env GOCACHE=/cache/go-build \
     --env COURSIER_CACHE=/cache/coursier \
-    --env "OPENCODE_CONFIG_CONTENT=${values[8]}" \
+    --env "OPENCODE_CONFIG_CONTENT=${values[10]}" \
     "${CREATE_EXTRA[@]}" "${5:-dotfiles-agent:latest}"
 }
 render() {
   local template index value
   template="$(< "$TEMPLATE")"
-  values[6]="$CACHE"
+  values[8]="$CACHE"
   for index in "${!keys[@]}"; do
     printf -v value '%q' "${values[$index]}"
     template="${template//\@${keys[$index]}\@/$value}"
@@ -1298,7 +1299,7 @@ copilot_token() {
   mkdir -p "${TOKEN_FILE%/*}"
   printf '%s\n' "$1" > "$TOKEN_FILE"
   chmod 600 "$TOKEN_FILE"
-  values[7]="$TOKEN_FILE"
+  values[9]="$TOKEN_FILE"
   render
 }
 placeholder_exec() {
@@ -1344,7 +1345,7 @@ copilot_existing_sandbox() {
   expected_create
   equal "$(git config --file "$META" --get task.copilotSecret)" false
   ok stop "$TASK"
-  values[7]="$CASE/credentials/missing-token"
+  values[9]="$CASE/credentials/missing-token"
   render
   ok resume "$TASK"
   equal "$(count_command exec)" 2
@@ -1362,7 +1363,7 @@ copilot_existing_sandbox() {
 copilot_token_checks() {
   local refs
   refs="$(git -C "$HOST" show-ref)"
-  values[7]="$CASE/credentials/missing-token"
+  values[9]="$CASE/credentials/missing-token"
   render
   # Setup does not need the token; creating a sandbox does.
   setup
@@ -1381,7 +1382,7 @@ copilot_token_checks() {
   preserved
   local location
   for location in "$CASE/workspaces/token" "$CASE/upstream/token" "$CACHE/token" "$HOST/token"; do
-    values[7]="$location"
+    values[9]="$location"
     render
     reject 'Copilot token file must not be inside the host repository, workspace, upstream, or cache directories' start other
   done
@@ -1409,7 +1410,7 @@ EOF
   reject 'set dotfiles.agentSandbox.copilotTokenFile before running code-agent login' login
   absent "$FAKE_OPENCODE_LOG"
   TOKEN_FILE="$CASE/credentials/github-copilot-token"
-  values[7]="$TOKEN_FILE"
+  values[9]="$TOKEN_FILE"
   render
   reject 'Usage: code-agent login' login extra
   ok login
@@ -1442,7 +1443,7 @@ EOF
   equal "$(< "$TOKEN_FILE")" gho_login_token
   equal "$(stat -c %a "$TOKEN_FILE")" 600
   unset FAKE_OPENCODE_PROVIDER
-  values[7]="$CASE/workspaces/token"
+  values[9]="$CASE/workspaces/token"
   render
   reject 'Copilot token file must not be inside' login
   absent "$CASE/workspaces"
@@ -1558,15 +1559,15 @@ if [ "${1:-}" = --case ]; then
   export GIT_CONFIG_GLOBAL="$CASE/gitconfig"
   # Render the same shell-escaped settings that Home Manager bakes into the command.
   SCRIPT="$CASE/bin/code-agent"
-  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory cacheDirectory copilotTokenFile opencodeConfig opencode)
-  values=("$CASE/workspaces" "$CASE/upstream" code-agent dotfiles-agent:latest 4 8G "$CASE/package-cache"
+  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory rootDisk networkProfiles cacheDirectory copilotTokenFile opencodeConfig opencode)
+  values=("$CASE/workspaces" "$CASE/upstream" code-agent dotfiles-agent:latest 4 8G 12G "public,private" "$CASE/package-cache"
     '' '{"autoupdate":false,"share":"disabled"}' "$CASE/bin/opencode")
   if [ "$CASE_NAME" = configured_settings ]; then
-    values=("$CASE/workspaces with ' quotes" "$CASE/upstream with spaces" custom-prefix custom-agent:configured 2 512M "$CASE/package cache with ' quotes"
+    values=("$CASE/workspaces with ' quotes" "$CASE/upstream with spaces" custom-prefix custom-agent:configured 2 512M 16G public "$CASE/package cache with ' quotes"
       '' '{"model":"github-copilot/example model","share":"disabled"}' "$CASE/bin/opencode")
   fi
   CREATE_EXTRA=()
-  CACHE="${values[6]}"
+  CACHE="${values[8]}"
   render
   export FAKE_MSB_STATE="$CASE/msb-state" FAKE_MSB_LOG="$CASE/msb.log"
   unset FAKE_MSB_FAIL FAKE_MSB_FAIL_INSPECT_NAME FAKE_MSB_NO_TRANSITION FAKE_MSB_EXEC_LOCK FAKE_MSB_EXEC_SCRIPT FAKE_MSB_EXEC_TASK

@@ -10,6 +10,7 @@ image=@image@
 cpus=@cpus@
 memory=@memory@
 root_disk=@rootDisk@
+network_profiles=@networkProfiles@
 cache_directory=@cacheDirectory@
 copilot_token_file=@copilotTokenFile@
 opencode_config=@opencodeConfig@
@@ -498,6 +499,7 @@ case "$action" in
       CODE_AGENT_COPILOT_TOKEN="$copilot_token" msb create --name "$sandbox" --cpus "$cpus" \
         --memory "$memory" \
         --root-disk "$root_disk" \
+        --net "$network_profiles" \
         --volume "$bare_repo:/mnt/upstream.git:ro" \
         --volume "$clone:/workspace" \
         --volume "$cache_root:/cache" \

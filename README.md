@@ -296,6 +296,7 @@ dotfiles.agentSandbox = {
   cpus = 4;
   memory = "8G";
   rootDisk = "12G";
+  networkProfiles = [ "public" "private" ];
   copilotTokenFile = "${config.home.homeDirectory}/development/agent/credentials/github-copilot-token";
   opencodeConfig = { model = "github-copilot/claude-opus-5.5"; };
 };
@@ -314,6 +315,7 @@ All settings except `enabled` are optional and have these defaults:
 | `cpus` | `4` |
 | `memory` | `8G` |
 | `rootDisk` | `12G` |
+| `networkProfiles` | `[ "public" "private" ]` |
 | `copilotTokenFile` | `null` (no Copilot secret) |
 | `opencodeConfig` | `{ autoupdate = false; share = "disabled"; }`, merged with your settings |
 
@@ -323,9 +325,14 @@ Settings are baked into the installed command; environment variables do not
 override them. Paths must be absolute, CPUs must be positive, and memory and
 root-disk sizes use microsandbox syntax such as `8G` or `512M`.
 
+`networkProfiles` accepts `public`, `private`, and `host`. Its default permits
+public internet access plus private networks reachable from the host, including
+Tailscale routes and split-DNS destinations. Use `[ "public" ]` to retain the
+Microsandbox public-network default.
+
 Keep paths and the sandbox prefix unchanged until existing tasks are cleaned
-up. CPU, memory, root-disk, and image changes apply to newly created sandboxes,
-not existing ones.
+up. CPU, memory, root-disk, network, and image changes apply to newly created
+sandboxes, not existing ones.
 
 `opencodeConfig` is passed to new sandboxes as `OPENCODE_CONFIG_CONTENT`. It
 takes precedence over a repository's own opencode config. Set `model` there to

@@ -8,8 +8,8 @@ let
     name = "code-agent";
     runtimeInputs = with pkgs; [ coreutils gnused git jq ];
     text = lib.replaceStrings
-      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@rootDisk@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" ]
-      (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory cfg.rootDisk cfg.cacheDirectory
+      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@rootDisk@" "@networkProfiles@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" ]
+      (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory cfg.rootDisk (concatStringsSep "," cfg.networkProfiles) cfg.cacheDirectory
         (if cfg.copilotTokenFile == null then "" else cfg.copilotTokenFile) (builtins.toJSON cfg.opencodeConfig) opencode ])
       (builtins.readFile ./scripts/code-agent);
   };
@@ -63,6 +63,11 @@ in with lib; {
         type = types.strMatching "[1-9][0-9]*[KMG]?";
         default = "12G";
         description = "Writable root disk allocated to new sandboxes, using microsandbox size syntax (for example 12G or 512M).";
+      };
+      networkProfiles = mkOption {
+        type = types.listOf (types.enum [ "public" "private" "host" ]);
+        default = [ "public" "private" ];
+        description = "Microsandbox network profiles enabled for new sandboxes. Private access permits Tailscale and other host-reachable private networks.";
       };
       copilotTokenFile = mkOption {
         type = types.nullOr (types.strMatching "/[^\n:]*");
