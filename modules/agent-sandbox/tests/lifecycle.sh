@@ -47,10 +47,19 @@ task_fields() {
   SANDBOX="$(field Sandbox)"
   UPSTREAM="$(field Upstream)"
   equal "$(field Cache)" "$CACHE"
-  DATA="${CLONE%/repo}"
-  TASK_DIR="${DATA%/data}"
-  META="$TASK_DIR/state"
+  META="$(meta_of "$CLONE")"
+  LOCK="$(lock_of "$CLONE")"
+  STATE_DIR="${CLONE%/*}/.code-agent"
 }
+# Task metadata and locks live in the workspace root's hidden .code-agent directory.
+meta_of() { printf '%s/.code-agent/%s.state\n' "${1%/*}" "${1##*/}"; }
+lock_of() { printf '%s/.code-agent/%s.lock\n' "${1%/*}" "${1##*/}"; }
+removed() {
+  absent "$CLONE"
+  absent "$META"
+  absent "$LOCK"
+}
+short_hash() { local hash; hash="$(printf '%s' "$1" | sha256sum)"; printf '%s\n' "${hash:0:$2}"; }
 new_repo() {
   HOST="$1"
   mkdir -p "$HOST"
@@ -79,7 +88,7 @@ logged() {
 }
 expected_create() {
   logged create --name "${1:-$SANDBOX}" --cpus "${3:-4}" --memory "${4:-8G}" \
-    --volume "$UPSTREAM:/mnt/upstream.git:ro" --volume "${2:-$DATA}:/workspace" \
+    --volume "$UPSTREAM:/mnt/upstream.git:ro" --volume "${2:-$CLONE}:/workspace" \
     --volume "$CACHE:/cache" \
     --volume "$CACHE/cargo/registry:/root/.cargo/registry" \
     --volume "$CACHE/cargo/git:/root/.cargo/git" \
@@ -115,12 +124,12 @@ count_command() {
 preserved() {
   exists "$CLONE/.git"
   exists "$META"
-  absent "$TASK_DIR/lock"
+  absent "$LOCK"
 }
 snapshot() {
   local path
   # Compare persistent file contents, not directory mtimes changed by locking.
-  for path in "$TASK_DIR"/** "$FAKE_MSB_STATE"/**; do
+  for path in "$CLONE"/** "$META" "$FAKE_MSB_STATE"/**; do
     [ ! -f "$path" ] || sha256sum "$path"
   done
 }
@@ -142,7 +151,7 @@ roundtrip() {
   absent "$CACHE"
   ok start "$TASK"
   expected_create
-  logged exec --tty "$SANDBOX" -- zsh -c 'cd /workspace/repo && exec zsh'
+  logged exec --tty "$SANDBOX" -- zsh -c 'cd /workspace && exec zsh'
   commit_work
   ok sync "$TASK"
   equal "$(git -C "$HOST" rev-parse "$BRANCH")" "$(git -C "$CLONE" rev-parse HEAD)"
@@ -153,7 +162,7 @@ roundtrip() {
   ok cleanup "$TASK"
   logged stop "$SANDBOX"
   logged rm --force "$SANDBOX"
-  absent "$TASK_DIR"
+  removed
   absent "$FAKE_MSB_STATE/$SANDBOX"
   exists "$UPSTREAM"
   git -C "$HOST" show-ref --verify --quiet "refs/heads/$BRANCH"
@@ -188,13 +197,13 @@ reuse() {
 
 mount_isolation() {
   setup first
-  local first_clone="$CLONE" first_data="$DATA" first_upstream="$UPSTREAM" first_sandbox="$SANDBOX"
+  local first_clone="$CLONE" first_mount="$CLONE" first_upstream="$UPSTREAM" first_sandbox="$SANDBOX"
   ok start "$TASK"
   setup second
   ok start "$TASK"
-  [ "$DATA" != "$first_data" ] || fail 'tasks share writable mount'
+  [ "$CLONE" != "$first_mount" ] || fail 'tasks share writable mount'
   equal "$UPSTREAM" "$first_upstream"
-  expected_create "$first_sandbox" "$first_data"
+  expected_create "$first_sandbox" "$first_mount"
   expected_create
   ok cleanup "$TASK"
   exists "$first_clone/.git"
@@ -268,13 +277,13 @@ cache_sharing() {
   ok_attach resume first
   contains "$STDERR" "WARNING: Other VMs are running: $SANDBOX"
   ok cleanup "$TASK"
-  absent "$TASK_DIR"
+  removed
   exists "$first_clone/.git"
   equal "$(< "$FAKE_MSB_STATE/$first_sandbox")" Running
   for cache in "${caches[@]}"; do equal "$(< "$CACHE/$cache/downloaded")" "$cache package"; done
   setup first
   ok cleanup "$TASK" --discard
-  absent "$TASK_DIR"
+  removed
   absent "$FAKE_MSB_STATE/$first_sandbox"
   for cache in "${caches[@]}"; do equal "$(< "$CACHE/$cache/downloaded")" "$cache package"; done
   setup second
@@ -319,11 +328,11 @@ cache_reuse() {
   exists "$CACHE"
   rm -- "$FAKE_MSB_STATE/$SANDBOX"
   ok start "$TASK"
-  expected_create "$SANDBOX" "$DATA" 2 512M reconfigured-agent:latest
+  expected_create "$SANDBOX" "$CLONE" 2 512M reconfigured-agent:latest
   equal "$(count_command create)" 2
   exists "$CACHE"
   ok cleanup "$TASK"
-  absent "$TASK_DIR"
+  removed
   exists "$CACHE"
 }
 
@@ -448,6 +457,85 @@ task_identity() {
   equal "$(git config --file "$META" --get task.name)" same_task
 }
 
+readable_layout() {
+  local repo_key entries
+  repo_key="project-$(short_hash "$(realpath -e "$HOST")" 8)"
+  setup 'Improve API'
+  equal "$CLONE" "$CASE/workspaces/$repo_key-improve_api"
+  equal "$META" "$CASE/workspaces/.code-agent/$repo_key-improve_api.state"
+  equal "$UPSTREAM" "$CASE/upstream/$repo_key.git"
+  equal "$SANDBOX" "code-agent-$repo_key-improve_api"
+  equal "$(git -C "$CLONE" rev-parse --show-toplevel)" "$CLONE"
+  # The workspace root holds only task clones and the hidden state directory.
+  entries="$(cd -- "$CASE/workspaces" && printf '%s\n' *)"
+  equal "$entries" "$(printf '%s\n' .code-agent "$repo_key-improve_api")"
+  ok start "$TASK"
+  expected_create
+  logged exec --tty "$SANDBOX" -- zsh -c 'cd /workspace && exec zsh'
+  # Repository names are normalized for paths and sandbox names.
+  new_repo "$CASE/odd/My.Repo Name!"
+  setup 'Improve API'
+  equal "${CLONE##*/}" "my_repo_name-$(short_hash "$(realpath -e "$HOST")" 8)-improve_api"
+  equal "${SANDBOX}" "code-agent-${CLONE##*/}"
+}
+
+task_name_clash() {
+  git -C "$HOST" switch -qc 'Feature/X'
+  ok setup
+  task_fields
+  equal "$BRANCH" Feature/X
+  [[ "$CLONE" == *-feature_x ]] || fail "unexpected workspace name: $CLONE"
+  local before refs action
+  before="$(snapshot)"
+  refs="$(git -C "$HOST" show-ref)"
+  for action in setup start resume stop status sync cleanup; do
+    reject "is already used by branch 'Feature/X'; choose a different task name" "$action" feature_x
+    equal "$(git -C "$HOST" branch --show-current)" Feature/X
+    equal "$(git -C "$HOST" show-ref)" "$refs"
+    equal "$(snapshot)" "$before"
+  done
+  absent "$LOCK"
+  equal "$(count_command create)" 0
+}
+
+long_task_names() {
+  local prefix='a very long task name that keeps going past the limit' first_clone name
+  setup "$prefix one"
+  first_clone="$CLONE"
+  name="${CLONE##*/}"
+  equal "${name#project-*-}" "a_very_long_task_name_that_keep-$(short_hash "${prefix// /_}_one" 8)"
+  setup "$prefix two"
+  [ "$CLONE" != "$first_clone" ] || fail 'long task names share a workspace'
+  name="${CLONE##*/}"
+  equal "${name#project-*-}" "a_very_long_task_name_that_keep-$(short_hash "${prefix// /_}_two" 8)"
+  exists "$first_clone/.git"
+  # Exactly 40 characters keeps the readable name without a hash.
+  setup 'abcdefghi abcdefghi abcdefghi abcdefghij'
+  name="${CLONE##*/}"
+  equal "${name#project-*-}" abcdefghi_abcdefghi_abcdefghi_abcdefghij
+}
+
+legacy_layout() {
+  local legacy refs
+  legacy="$CASE/workspaces/code-agent/repo-$(short_hash "$(realpath -e "$HOST")" 12)/test_task-$(short_hash test_task 12)"
+  mkdir -p "$legacy/data/repo"
+  printf '[task]\n\tname = test_task\n' > "$legacy/state"
+  refs="$(git -C "$HOST" show-ref)"
+  for action in setup start resume stop status sync cleanup; do
+    reject "task uses the old workspace layout: $legacy" "$action" 'Test Task'
+    contains "$OUTPUT" 'Sync and clean it up with the previous code-agent version first'
+    equal "$(git -C "$HOST" branch --show-current)" feature
+    equal "$(git -C "$HOST" show-ref)" "$refs"
+  done
+  absent "$CASE/workspaces/.code-agent"
+  absent "$CASE/upstream"
+  equal "$(count_command ls)" 0
+  exists "$legacy/state"
+  # Other tasks in the same repository are unaffected.
+  setup other
+  exists "$CLONE/.git"
+}
+
 main_task() {
   git -C "$HOST" switch -q main
   local action source
@@ -493,7 +581,7 @@ optional_task() {
   equal "$(git -C "$HOST" rev-parse HEAD)" "$(git -C "$CLONE" rev-parse HEAD)"
   equal "$(< "$HOST/tracked")" "$(< "$CLONE/tracked")"
   ok cleanup
-  absent "$TASK_DIR"
+  removed
   absent "$FAKE_MSB_STATE/$SANDBOX"
   equal "$(git -C "$HOST" branch --show-current)" "$branch"
 }
@@ -693,7 +781,7 @@ repeated_sync() {
   ok sync "$TASK"
   equal "$(git -C "$HOST" status --porcelain)" ''
   ok cleanup "$TASK"
-  absent "$TASK_DIR"
+  removed
 }
 
 ignored_switch_collision() {
@@ -714,7 +802,7 @@ ignored_switch_collision() {
     equal "$(sha256sum "$HOST/ignored" "$HOST/tracked")" "$files"
   done
   equal "$(count_command create)" 0
-  local states=("$CASE/workspaces"/**/state) locks=("$CASE/upstream"/**/*.lock)
+  local states=("$CASE/workspaces"/**/*.state) locks=("$CASE/upstream"/**/*.lock)
   equal "${#states[@]}" 0
   equal "${#locks[@]}" 0
 }
@@ -816,12 +904,12 @@ sync_repo_lock() {
     trap 'rmdir -- "$lock"' EXIT
     # Wait for sync to take its task lock, then verify it stays blocked.
     for ((attempt = 0; attempt < 100; attempt++)); do
-      [ ! -d "$TASK_DIR/lock" ] || break
+      [ ! -d "$LOCK" ] || break
       sleep 0.05
     done
-    exists "$TASK_DIR/lock"
+    exists "$LOCK"
     sleep 1
-    exists "$TASK_DIR/lock"
+    exists "$LOCK"
     equal "$(git -C "$HOST" show-ref)" "$refs"
     equal "$(sha256sum "$HOST/tracked")" "$files"
     printf 'verified\n' > "$CASE/lock-verified"
@@ -858,7 +946,7 @@ host_rejection() {
     untracked_host) printf 'untracked\n' > "$HOST/untracked"; reject 'commit or stash host changes before handover or sync' setup rejected ;;
   esac
   equal "$(count_command create)" 0
-  local states=("$CASE/workspaces"/**/state)
+  local states=("$CASE/workspaces"/**/*.state)
   equal "${#states[@]}" 0
 }
 
@@ -901,7 +989,6 @@ cleanup_work() {
       ok sync "$TASK"
       reason='Git objects are not preserved'
       ;;
-    extra_file_cleanup) printf 'extra\n' > "$DATA/extra"; reason='workspace contains extra files' ;;
   esac
   local before
   before="$(snapshot)"
@@ -912,7 +999,7 @@ cleanup_work() {
   equal "$(snapshot | while IFS= read -r line; do [[ "$line" == *"$FAKE_MSB_STATE/"* ]] || printf '%s\n' "$line"; done)" \
     "$(while IFS= read -r line; do [[ "$line" == *"$FAKE_MSB_STATE/"* ]] || printf '%s\n' "$line"; done <<< "$before")"
   ok cleanup "$TASK" --discard
-  absent "$TASK_DIR"
+  removed
   absent "$FAKE_MSB_STATE/$SANDBOX"
 }
 
@@ -939,14 +1026,14 @@ lifecycle_failure() {
   unset FAKE_MSB_FAIL
   ok stop "$TASK"
   ok cleanup "$TASK" --discard
-  absent "$TASK_DIR"
+  removed
 }
 
 symlink_refusal() {
   setup
   local target link
   case "$CASE_NAME" in
-    symlink_parent) link="${TASK_DIR%/*}" ;;
+    symlink_parent) link="$STATE_DIR" ;;
     symlink_clone) link="$CLONE" ;;
     symlink_git) link="$CLONE/.git" ;;
   esac
@@ -1023,22 +1110,22 @@ no_main() {
   commit_work
   ok sync "$TASK"
   ok cleanup "$TASK"
-  absent "$TASK_DIR"
+  removed
 }
 
 lock_refusal() {
   setup
-  mkdir "$TASK_DIR/lock"
+  mkdir "$LOCK"
   local action
   for action in setup start resume stop status sync cleanup; do
     reject 'task is locked' "$action" "$TASK"
-    exists "$TASK_DIR/lock"
+    exists "$LOCK"
     exists "$META"
   done
   reject 'task is locked' cleanup "$TASK" --discard
   reject 'task is locked' cleanup "$TASK" --dry-run
   equal "$(count_command ls)" 0
-  rmdir "$TASK_DIR/lock"
+  rmdir "$LOCK"
   ok cleanup "$TASK"
 }
 
@@ -1076,7 +1163,7 @@ paused_lifecycle() {
   printf 'Paused\n' > "$FAKE_MSB_STATE/$SANDBOX"
   ok cleanup "$TASK"
   equal "$(count_command resume)" 4
-  absent "$TASK_DIR"
+  removed
   absent "$FAKE_MSB_STATE/$SANDBOX"
 }
 
@@ -1154,14 +1241,14 @@ concurrent_setup() {
   OUTPUT="$(< "$CASE/first.out")"
   first_clone="$(field Workspace)"
   equal "$(field Branch)" concurrent_first
-  equal "$(git config --file "${first_clone%/data/repo}/state" --get task.sourceBranch)" concurrent_first
+  equal "$(git config --file "$(meta_of "$first_clone")" --get task.sourceBranch)" concurrent_first
   equal "$(git -C "$HOST" rev-parse concurrent_first)" "$source"
   equal "$(git -C "$first_clone" rev-parse HEAD)" "$source"
   OUTPUT="$(< "$CASE/second.out")"
   CLONE="$(field Workspace)"
   UPSTREAM="$(field Upstream)"
   equal "$(field Branch)" concurrent_second
-  equal "$(git config --file "${CLONE%/data/repo}/state" --get task.sourceBranch)" concurrent_second
+  equal "$(git config --file "$(meta_of "$CLONE")" --get task.sourceBranch)" concurrent_second
   equal "$(git -C "$HOST" rev-parse concurrent_second)" "$source"
   case "$(git -C "$HOST" branch --show-current)" in
     concurrent_first|concurrent_second) ;;
@@ -1174,13 +1261,13 @@ concurrent_setup() {
   equal "$(git -C "$UPSTREAM" rev-parse "refs/heads/snapshot-$source")" "$source"
   git -C "$UPSTREAM" fsck --no-dangling >/dev/null 2>&1
   absent "${UPSTREAM%.git}.lock"
-  absent "${first_clone%/data/repo}/lock"
-  absent "${CLONE%/data/repo}/lock"
+  absent "$(lock_of "$first_clone")"
+  absent "$(lock_of "$CLONE")"
 }
 
 interactive_lock() {
   setup
-  export FAKE_MSB_EXEC_LOCK="$TASK_DIR/lock"
+  export FAKE_MSB_EXEC_LOCK="$LOCK"
   export FAKE_MSB_EXEC_SCRIPT="$SCRIPT" FAKE_MSB_EXEC_TASK="$TASK"
   ok start "$TASK"
   logged ls
@@ -1209,7 +1296,7 @@ configured_settings() {
   contains "$SANDBOX" custom-prefix-
   ok start "$TASK"
   equal "$CACHE" "$CASE/package cache with ' quotes"
-  expected_create "$SANDBOX" "$DATA" 2 512M custom-agent:configured
+  expected_create "$SANDBOX" "$CLONE" 2 512M custom-agent:configured
   exists "$CACHE"
   ok cleanup "$TASK"
   exists "$CACHE"
@@ -1288,7 +1375,7 @@ if [ "${1:-}" = --case ]; then
     main_prompt_setup|main_prompt_start) main_prompt ;;
     explicit_branch_setup|explicit_branch_start) explicit_branch ;;
     dirty_handover|staged_handover|untracked_handover) dirty_handover ;;
-    dirty_cleanup|untracked_cleanup|ignored_cleanup|unsynced_cleanup|other_branch_cleanup|extra_file_cleanup|reflog_cleanup|stash_cleanup|annotated_tag_cleanup) cleanup_work ;;
+    dirty_cleanup|untracked_cleanup|ignored_cleanup|unsynced_cleanup|other_branch_cleanup|reflog_cleanup|stash_cleanup|annotated_tag_cleanup) cleanup_work ;;
     ls_failure|stop_failure|rm_failure) lifecycle_failure ;;
     inspect_failure|start_failure|resume_failure) transition_failure ;;
     symlink_parent|symlink_clone|symlink_git) symlink_refusal ;;
@@ -1309,14 +1396,14 @@ tests=(roundtrip reuse mount_isolation cache_sharing cache_reuse cache_lazy_crea
   cache_overlap_repo_equal cache_overlap_repo_descendant cache_overlap_repo_ancestor
   cache_overlap_workspace_equal cache_overlap_workspace_descendant cache_overlap_workspace_ancestor
   cache_overlap_upstream_equal cache_overlap_upstream_descendant cache_overlap_upstream_ancestor
-  repo_identity task_identity main_task rebased_source
+  repo_identity task_identity readable_layout task_name_clash long_task_names legacy_layout main_task rebased_source
   optional_task slash_branch main_prompt_setup main_prompt_start explicit_branch_setup explicit_branch_start
   missing_task dirty_handover staged_handover untracked_handover divergent_sync noncurrent_sync
   other_worktree_sync dirty_clone_sync repeated_sync
   ignored_switch_collision ignored_sync_collision host_tag_collision main_tag_prompt
   clone_tag_collision squash_merge_options sync_repo_lock
   detached_host dirty_host untracked_host dirty_cleanup untracked_cleanup ignored_cleanup
-  unsynced_cleanup other_branch_cleanup extra_file_cleanup ls_failure stop_failure rm_failure
+  unsynced_cleanup other_branch_cleanup ls_failure stop_failure rm_failure
   symlink_parent symlink_clone symlink_git dry_run partial_initialization
   checked_out_destination no_main lock_refusal wrong_branch paused_lifecycle
   inspect_failure start_failure resume_failure transition_verification reflog_cleanup

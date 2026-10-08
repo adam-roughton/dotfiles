@@ -206,6 +206,13 @@ Tasks created by the earlier `code-agent` workflow also use the old identity
 and result-branch layout. Sync and clean those tasks with the previous command
 version before activating this branch-based workflow; their files are not migrated.
 
+Tasks created before the flat workspace layout (under
+`<workspaceDirectory>/code-agent/repo-<hash>/…/data/repo`) are not migrated
+either. `code-agent` refuses to operate on such a task and names its old
+directory; sync and clean it up with the previous version first. Once every old
+task is gone, the leftover `<workspaceDirectory>/code-agent` and
+`<upstreamDirectory>/code-agent` directories can be deleted.
+
 ### Image and Configuration
 
 Build and register the local microsandbox image:
@@ -338,8 +345,29 @@ handling` selects branch `improve_api_error_handling`. Names that normalize to
 the same branch identify the same task. Without a name, the current branch is
 used unchanged, including slashes such as `feature/api`. For such branches,
 switch to the branch and omit the task argument in subsequent commands.
-Resource names use hashes of the canonical host checkout path and task branch,
-so separate checkouts and distinct branch names remain isolated.
+
+### Workspace Layout
+
+Each task is a single folder named `<repo>-<hash>-<task>`. `<repo>` is the host
+checkout's directory name, and `<hash>` is a short hash of its absolute path, so
+same-named checkouts in different places stay separate:
+
+```text
+<workspaceDirectory>/
+  dotfiles-1a2b3c4d-improve_api/              # task clone, mounted at /workspace
+  .code-agent/dotfiles-1a2b3c4d-improve_api.state
+  .code-agent/dotfiles-1a2b3c4d-improve_api.lock/   # only while a command runs
+<upstreamDirectory>/
+  dotfiles-1a2b3c4d.git                       # read-only bare upstream, shared per checkout
+sandbox: <sandboxPrefix>-dotfiles-1a2b3c4d-improve_api
+```
+
+Task metadata and locks live in the hidden `.code-agent` directory, which is
+never mounted into a sandbox. Task names longer than 40 characters are
+truncated and end with a short hash of the branch name. Different branches
+that normalize to the same name, such as `Feature/X` and `feature_x`, would
+share a folder. The second one is refused with an error naming the branch that
+already uses it; choose a different task name.
 
 ### Setup and Start
 
@@ -364,13 +392,13 @@ changes first. Reusing a task keeps its original agent clone and source snapshot
 new host commits are not automatically applied inside an existing clone.
 
 The clone is created on the host with `git clone --no-hardlinks`. Only that
-task's data directory is mounted read-write at `/workspace`, with the clone
-at `/workspace/repo`. The bare upstream is mounted read-only at
-`/mnt/upstream.git`; the entire workspace root is not exposed to the sandbox.
+task's clone is mounted read-write, at `/workspace`. The bare upstream is
+mounted read-only at `/mnt/upstream.git`; the rest of the workspace root,
+including task metadata, is not exposed to the sandbox.
 Host Git author identity is copied into the clone, but credentials and signing
 keys are not. Commit signing is disabled locally in the clone.
 
-The attached shell automatically enters `/workspace/repo`. Launch the agent
+The attached shell automatically enters `/workspace`. Launch the agent
 yourself and supply its instructions manually; task text is not delivered to
 the agent automatically:
 
