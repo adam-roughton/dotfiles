@@ -38,6 +38,20 @@ The flake sets `self.submodules = true` so the `private` submodule is included
 in the flake source, which needs Nix 2.27 or later. As with any flake in a Git
 repository, new files must be added to Git (`git add`) before Nix can see them.
 
+Each NixOS system must name its hardware configuration explicitly with
+`hardwareConfiguration` in its `default.nix`. This is the
+`nixos-generate-config` output that defines the root and `/boot` filesystems,
+initrd modules and swap. If the file is missing, evaluation fails with
+instructions for generating it on the machine:
+
+```sh
+nixos-generate-config --show-hardware-config > systems/<name>/hardware-configuration.nix
+git add systems/<name>/hardware-configuration.nix
+```
+
+`make.sh vm` does not need the file. `rpi3` sets `hardwareConfiguration = null`
+because its SD card layout defines its filesystems.
+
 ## Commands
 
 ### Build
@@ -141,14 +155,22 @@ there when creating a microsandbox environment.
 
 ### Raspberry Pi Images
 
-Build an SD card image for the Raspberry Pi configuration:
+The Raspberry Pi boots through the GPU firmware, then U-Boot, then extlinux,
+using nixos-hardware's `raspberry-pi/3` module. `config.txt` is generated from
+`hardware.raspberry-pi.configtxt.settings` in `systems/rpi3/firmware.nix`.
+
+Build an SD card image for the Raspberry Pi configuration. The command prints
+the store path; the image is `sd-image/*.img.zst` inside it.
 
 ```sh
 ./make.sh disk-image rpi3
 ```
 
-Build and interactively install the Raspberry Pi firmware onto the mounted
-`FIRMWARE` partition:
+The image has a `FIRMWARE` FAT partition holding the firmware files and
+`config.txt`, and a `NIXOS_SD` ext4 root partition. After switching, extlinux
+entries on the root partition are updated automatically. The firmware partition
+is not updated on switch, so after changing `config.txt` or updating nixpkgs,
+build and interactively install the firmware onto the `FIRMWARE` partition:
 
 ```sh
 ./make.sh firmware rpi3

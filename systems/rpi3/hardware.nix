@@ -1,9 +1,22 @@
-{ config, pkgs, ... }:
+{ config, pkgs, inputs, modulesPath, ... }:
 
-let
-in
 {
+  imports = [
+    # Boots through the GPU firmware -> U-Boot -> extlinux
+    # (generic-extlinux-compatible), and renders config.txt from
+    # hardware.raspberry-pi.configtxt (see firmware.nix). Its vendor kernel is
+    # only a default; boot.kernelPackages below keeps the cached mainline one.
+    "${inputs.nixos-hardware}/raspberry-pi/3"
+    # SD card layout: FIRMWARE (FAT) partition at /boot/firmware and the
+    # NIXOS_SD ext4 root, plus system.build.sdImage for `make.sh disk-image`.
+    "${modulesPath}/installer/sd-card/sd-image.nix"
+  ];
+
   boot.loader.grub.enable = false;
+  boot.loader.generic-extlinux-compatible = {
+    enable = true;
+    configurationLimit = 2;
+  };
 
   # A bunch of boot parameters needed for optimal runtime on RPi 3b+
   boot.kernelParams = [
@@ -18,17 +31,12 @@ in
 
   hardware.enableRedistributableFirmware = true;
 
+  # The Wi-Fi/Bluetooth firmware comes from the nixos-hardware module.
   hardware.firmware = with pkgs; [
      wireless-regdb
-     raspberrypiWirelessFirmware
   ];
 
-  fileSystems = {
-    "/" = {
-      device = "/dev/disk/by-label/NIXOS_SD";
-      fsType = "ext4";
-    };
-  };
+  # Filesystems ("/" on NIXOS_SD, /boot/firmware) come from sd-image.nix.
 
   # Use 1GB of additional swap memory in order to not run out of memory
   # when installing lots of things while running other things at the same time.

@@ -236,12 +236,15 @@ case "$mode" in
     if [ ! -d /mnt ]; then
       sudo mkdir /mnt
     fi
-    sudo -- "$BASH" -c "mount /dev/disk/by-label/FIRMWARE /mnt; \
-      rm -f /mnt/*; \
-      cp '$firmware'/* /mnt; \
+    # set -e so nothing is deleted if the mount fails. The firmware includes
+    # the overlays/ directory, so copy recursively.
+    sudo -- "$BASH" -c "set -e; \
+      mount /dev/disk/by-label/FIRMWARE /mnt; \
+      trap 'umount /mnt' EXIT; \
+      find /mnt -mindepth 1 -delete; \
+      cp -r '$firmware'/. /mnt/; \
       echo 'Updated FIRMWARE:'; \
-      ls /mnt; \
-      umount /mnt
+      ls /mnt
       "
     echo "Firmware updated. Reboot to apply changes."
     ;;
