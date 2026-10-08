@@ -105,6 +105,22 @@
         "type": "github"
       }
     },
+    "homebrew-microsandbox": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1790868997,
+        "narHash": "sha256-n6BMgq98pwmE2oMFElLQ9NM+2CuCZw/mt3IPxxAxgVk=",
+        "owner": "superradcompany",
+        "repo": "homebrew-tap",
+        "rev": "caaec33a82ada3f1979afbdd68ae50c93c9cf1d7",
+        "type": "github"
+      },
+      "original": {
+        "owner": "superradcompany",
+        "repo": "homebrew-tap",
+        "type": "github"
+      }
+    },
     "nix-homebrew": {
       "inputs": {
         "brew-src": "brew-src"
@@ -167,6 +183,7 @@
         "homebrew-aerospace": "homebrew-aerospace",
         "homebrew-cask": "homebrew-cask",
         "homebrew-core": "homebrew-core",
+        "homebrew-microsandbox": "homebrew-microsandbox",
         "nix-homebrew": "nix-homebrew",
         "nixos-hardware": "nixos-hardware",
         "nixpkgs": "nixpkgs"

@@ -2,6 +2,10 @@
   description = "Adam Roughton's systems and home configurations";
 
   inputs = {
+    # Include the `private` submodule in the flake source; without this the
+    # private per-system configuration is silently skipped.
+    self.submodules = true;
+
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     nixos-hardware = {
       url = "github:NixOS/nixos-hardware/master";
@@ -19,6 +23,8 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # Homebrew taps for superposition. Inputs are fetched lazily, so building
+    # other systems does not download them.
     nix-homebrew.url = "github:zhaofengli/nix-homebrew";
     homebrew-core = {
       url = "github:Homebrew/homebrew-core";
@@ -32,137 +38,27 @@
       url = "github:nikitabobko/homebrew-tap";
       flake = false;
     };
+    homebrew-microsandbox = {
+      url = "github:superradcompany/homebrew-tap";
+      flake = false;
+    };
   };
 
-  outputs = inputs@{ self, nixpkgs, nixos-hardware, home-manager, darwin
-    , nix-homebrew, homebrew-core, homebrew-cask, homebrew-aerospace, ... }:
-    let
-      repo = builtins.path { path = ./.; name = "dotfiles"; };
-      linuxSystem = system: name: extraModules:
-        nixpkgs.lib.nixosSystem {
-          inherit system;
-          specialArgs = { inherit inputs; };
-          modules = [
-            home-manager.nixosModules.home-manager
-            {
-              nixpkgs.config.allowBroken = true;
-              nixpkgs.config.allowUnfree = true;
-              nixpkgs.overlays = [ (import ./systems/${name}/overlay.nix) ];
-              fileSystems."/" = {
-                device = "/dev/disk/by-label/NIXOS";
-                fsType = "ext4";
-              };
-              home-manager.useGlobalPkgs = true;
-              home-manager.useUserPackages = true;
-              home-manager.extraSpecialArgs = { user = import ./user.nix; };
-            }
-          ] ++ extraModules;
-        };
-    in {
-      nixosConfigurations = {
-        spacemonkey = linuxSystem "x86_64-linux" "spacemonkey" [
-          ./systems/spacemonkey/system.nix
-          ./systems/spacemonkey/hardware.nix
-          { home-manager.users.adamr.imports = [ "${repo}/systems/spacemonkey/home.nix" ]; }
-        ];
-        skyhook = linuxSystem "x86_64-linux" "skyhook" [
-          ./systems/skyhook/system.nix
-          ./systems/skyhook/hardware.nix
-          { home-manager.users.adamr.imports = [ "${repo}/systems/skyhook/home.nix" ]; }
-        ];
-        rpi3 = linuxSystem "aarch64-linux" "rpi3" [
-          ./systems/rpi3/system.nix
-          ./systems/rpi3/hardware.nix
-          { home-manager.users.adam.imports = [ "${repo}/systems/rpi3/home.nix" ]; }
-        ];
-      };
-
-      darwinConfigurations.superposition = darwin.lib.darwinSystem {
-        system = "aarch64-darwin";
-        specialArgs = { inherit inputs; };
-        modules = [
-          ./systems/superposition/system.nix
-          home-manager.darwinModules.home-manager
-          nix-homebrew.darwinModules.nix-homebrew
-          ({ config, ... }: {
-            nixpkgs.config.allowUnfree = true;
-            nixpkgs.overlays = [ (import ./systems/superposition/overlay.nix) ];
-            home-manager.useGlobalPkgs = true;
-            home-manager.useUserPackages = true;
-            home-manager.extraSpecialArgs = { system = "aarch64-darwin"; };
-            home-manager.users."Adam.Roughton" = ./systems/superposition/home.nix;
-            nix-homebrew = {
-              enable = true;
-              enableRosetta = true;
-              user = "Adam.Roughton";
-              taps = {
-                "homebrew/homebrew-core" = homebrew-core;
-                "homebrew/homebrew-cask" = homebrew-cask;
-                "nikitabobko/homebrew-aerospace" = homebrew-aerospace;
-              };
-              mutableTaps = false;
-            };
-            homebrew.taps = builtins.attrNames config.nix-homebrew.taps;
-          })
-        ];
-      };
-
-      homeConfigurations = {
-        "adamr@skyhook-ho" = home-manager.lib.homeManagerConfiguration {
-          pkgs = import nixpkgs {
-            system = "x86_64-linux";
-            config.allowUnfree = true;
-            config.cudaSupport = true;
-          };
-          modules = [ ./systems/skyhook-ho/home.nix ];
-          extraSpecialArgs = { system = "x86_64-linux"; };
-        };
-      };
-
-      packages = nixpkgs.lib.genAttrs [ "aarch64-linux" "x86_64-linux" ] (system:
-        let
-          pkgs = import nixpkgs {
-            inherit system;
-            config.allowUnfree = true;
-          };
-          home = home-manager.lib.homeManagerConfiguration {
-            inherit pkgs;
-            modules = [ ./systems/agent-computer/home.nix ];
-          };
-          contents = pkgs.buildEnv {
-            name = "dotfiles-agent-image-contents";
-            paths = [ pkgs.bashInteractive pkgs.zsh ] ++ home.config.home.packages;
-            pathsToLink = [ "/bin" "/sbin" "/lib" "/share" ];
-          };
-        in {
-          # A script that writes the image to stdout as an uncompressed tar
-          # (which is what `msb load` expects). Unlike buildLayeredImage it
-          # does not keep a full copy of the image in the Nix store.
-          agent-image = pkgs.dockerTools.streamLayeredImage {
-            name = "dotfiles-agent";
-            tag = "latest";
-            contents = [ contents ];
-            # Install the Home Manager dotfiles (store symlinks, as Home Manager
-            # itself would) and the profile they refer to, so the shell matches
-            # the workstations. Activation hooks are not run.
-            extraCommands = ''
-              mkdir -p root workspace
-              cp ${./systems/agent-computer/AGENTS.md} AGENTS.md
-              cp -rP ${home.config.home-files}/. root/
-              chmod -R u+w root
-              ln -s ${home.config.home.path} root/.nix-profile
-            '';
-            config = {
-              Cmd = [ "${pkgs.zsh}/bin/zsh" ];
-              Env = [
-                "HOME=/root"
-                "PATH=/bin:/sbin"
-                "SHELL=${pkgs.zsh}/bin/zsh"
-                "USER=root"
-              ];
-              WorkingDir = "/workspace";
-            };
-          };
-        });
+  # Each system is defined in systems/<name>/default.nix, which receives the
+  # flake inputs. There is a single lock file for all of them.
+  outputs = inputs@{ nixpkgs, ... }: {
+    nixosConfigurations = {
+      spacemonkey = import ./systems/spacemonkey { inherit inputs; };
+      skyhook = import ./systems/skyhook { inherit inputs; };
+      rpi3 = import ./systems/rpi3 { inherit inputs; };
     };
+
+    darwinConfigurations.superposition = import ./systems/superposition { inherit inputs; };
+
+    homeConfigurations."adamr@skyhook-ho" = import ./systems/skyhook-ho { inherit inputs; };
+
+    packages = nixpkgs.lib.genAttrs [ "aarch64-linux" "x86_64-linux" ] (system: {
+      agent-image = import ./systems/agent-computer { inherit inputs system; };
+    });
+  };
 }

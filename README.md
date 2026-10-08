@@ -27,6 +27,17 @@ location relative to itself.
 | `skyhook-ho` | Home Manager / x86_64 | `homeConfigurations."adamr@skyhook-ho"` |
 | `agent-image` | OCI / aarch64 or x86_64 Linux | `packages.<system>.agent-image` |
 
+The root `flake.nix` declares every input and lists the outputs. Each system is
+defined in `systems/<name>/default.nix`, which receives the flake inputs. The
+NixOS systems share their common wiring through `systems/nixos-system.nix`, and
+the agent image is defined in `systems/agent-computer/default.nix`. There is one
+`flake.lock` for all systems. Per-system flakes are not used, because each one
+would have its own lock file and could fall out of sync with the root.
+
+The flake sets `self.submodules = true` so the `private` submodule is included
+in the flake source, which needs Nix 2.27 or later. As with any flake in a Git
+repository, new files must be added to Git (`git add`) before Nix can see them.
+
 ## Commands
 
 ### Build
