@@ -101,7 +101,9 @@ expected_create() {
     --env npm_config_cache=/cache/npm --env YARN_CACHE_FOLDER=/cache/yarn \
     --env npm_config_store_dir=/cache/pnpm --env BUN_INSTALL_CACHE_DIR=/cache/bun \
     --env GOMODCACHE=/cache/go-mod --env GOCACHE=/cache/go-build \
-    --env COURSIER_CACHE=/cache/coursier "${5:-dotfiles-agent:latest}"
+    --env COURSIER_CACHE=/cache/coursier \
+    --env "OPENCODE_CONFIG_CONTENT=${values[8]}" \
+    "${CREATE_EXTRA[@]}" "${5:-dotfiles-agent:latest}"
 }
 render() {
   local template index value
@@ -1279,6 +1281,162 @@ interactive_lock() {
   equal "$(count_command create)" 1
 }
 
+copilot_token() {
+  TOKEN_FILE="$CASE/credentials/github-copilot-token"
+  mkdir -p "${TOKEN_FILE%/*}"
+  printf '%s\n' "$1" > "$TOKEN_FILE"
+  chmod 600 "$TOKEN_FILE"
+  values[7]="$TOKEN_FILE"
+  render
+}
+placeholder_exec() {
+  # shellcheck disable=SC2016
+  logged exec "$SANDBOX" -- bash -c 'set -e; mkdir -p "${1%/*}"; umask 077; if [ ! -e "$1" ]; then printf "%s\n" "$2" > "$1"; fi' \
+    code-agent /root/.local/share/opencode/auth.json \
+    '{"github-copilot":{"type":"oauth","refresh":"$MSB_CODE_AGENT_COPILOT_TOKEN","access":"$MSB_CODE_AGENT_COPILOT_TOKEN","expires":0}}'
+}
+secret_env_log() { if [ -f "$FAKE_MSB_LOG.env" ]; then cat -- "$FAKE_MSB_LOG.env"; fi; }
+
+copilot_secret() {
+  copilot_token gho_first_token
+  setup
+  ok start "$TASK"
+  CREATE_EXTRA=(--secret CODE_AGENT_COPILOT_TOKEN@api.githubcopilot.com)
+  expected_create
+  placeholder_exec
+  equal "$(git config --file "$META" --get task.copilotSecret)" true
+  # Only msb's environment for create sees the real token; never any arguments.
+  equal "$(secret_env_log)" 'create gho_first_token'
+  [[ "$(< "$FAKE_MSB_LOG")" != *gho_* ]] || fail 'token appeared in msb arguments'
+  [[ "$OUTPUT" != *gho_* ]] || fail 'token appeared in command output'
+  # Running and paused sandboxes need no token; a restart re-reads the rotated token.
+  ok resume "$TASK"
+  equal "$(count_command exec)" 4
+  copilot_token gho_rotated_token
+  ok stop "$TASK"
+  ok resume "$TASK"
+  equal "$(secret_env_log)" "$(printf '%s\n' 'create gho_first_token' 'start gho_rotated_token')"
+  # A missing token blocks restarting a Copilot sandbox but not stopping it.
+  ok stop "$TASK"
+  rm -- "$TOKEN_FILE"
+  reject 'Copilot token file is missing' resume "$TASK"
+  equal "$(< "$FAKE_MSB_STATE/$SANDBOX")" Stopped
+  equal "$(count_command start)" 1
+  preserved
+}
+
+copilot_existing_sandbox() {
+  # Sandboxes created before the token was configured keep working without it.
+  setup
+  ok start "$TASK"
+  expected_create
+  equal "$(git config --file "$META" --get task.copilotSecret)" false
+  ok stop "$TASK"
+  values[7]="$CASE/credentials/missing-token"
+  render
+  ok resume "$TASK"
+  equal "$(count_command exec)" 2
+  equal "$(secret_env_log)" ''
+  # Recreating the sandbox picks up the secret.
+  copilot_token gho_new_token
+  rm -- "$FAKE_MSB_STATE/$SANDBOX"
+  ok start "$TASK"
+  CREATE_EXTRA=(--secret CODE_AGENT_COPILOT_TOKEN@api.githubcopilot.com)
+  expected_create
+  placeholder_exec
+  equal "$(secret_env_log)" 'create gho_new_token'
+}
+
+copilot_token_checks() {
+  local refs
+  refs="$(git -C "$HOST" show-ref)"
+  values[7]="$CASE/credentials/missing-token"
+  render
+  # Setup does not need the token; creating a sandbox does.
+  setup
+  reject 'Copilot token file is missing: '"$CASE/credentials/missing-token"' (run code-agent login)' start "$TASK"
+  copilot_token gho_valid_token
+  chmod 640 "$TOKEN_FILE"
+  reject 'must not be accessible by group or others' start "$TASK"
+  printf 'two words\n' > "$TOKEN_FILE"
+  chmod 600 "$TOKEN_FILE"
+  reject 'must contain a single token' start "$TASK"
+  : > "$TOKEN_FILE"
+  reject 'must contain a single token' start "$TASK"
+  equal "$(count_command create)" 0
+  absent "$CACHE"
+  if git config --file "$META" --get task.copilotSecret; then fail 'refused start recorded the Copilot secret'; fi
+  preserved
+  local location
+  for location in "$CASE/workspaces/token" "$CASE/upstream/token" "$CACHE/token" "$HOST/token"; do
+    values[7]="$location"
+    render
+    reject 'Copilot token file must not be inside the host repository, workspace, upstream, or cache directories' start other
+  done
+  equal "$(git -C "$HOST" branch --show-current)" "$BRANCH"
+  equal "$(count_command create)" 0
+}
+
+copilot_login() {
+  cat > "$CASE/bin/opencode" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+[ "$*" = 'auth login' ] || { printf 'unexpected opencode arguments: %s\n' "$*" >&2; exit 2; }
+printf '%s\n' "$XDG_DATA_HOME" > "$FAKE_OPENCODE_LOG"
+mkdir -p "$XDG_DATA_HOME/opencode"
+case "${FAKE_OPENCODE_PROVIDER:-github-copilot}" in
+  github-copilot) printf '%s\n' '{"anthropic":{"type":"api","key":"sk-other"},"github-copilot":{"type":"oauth","refresh":"gho_login_token","access":"gho_login_token","expires":0}}' ;;
+  enterprise-domain) printf '%s\n' '{"github-copilot":{"type":"oauth","refresh":"gho_ghe_token","access":"gho_ghe_token","expires":0,"enterpriseUrl":"company.ghe.com"}}' ;;
+  *) printf '%s\n' '{"anthropic":{"type":"api","key":"sk-other"}}' ;;
+esac > "$XDG_DATA_HOME/opencode/auth.json"
+EOF
+  chmod +x "$CASE/bin/opencode"
+  export FAKE_OPENCODE_LOG="$CASE/opencode.log"
+  # Login works outside a repository and needs the option to be configured.
+  HOST="$CASE/home"
+  reject 'set dotfiles.agentSandbox.copilotTokenFile before running code-agent login' login
+  absent "$FAKE_OPENCODE_LOG"
+  TOKEN_FILE="$CASE/credentials/github-copilot-token"
+  values[7]="$TOKEN_FILE"
+  render
+  reject 'Usage: code-agent login' login extra
+  ok login
+  contains "$OUTPUT" "Saved the GitHub Copilot token to $TOKEN_FILE."
+  [[ "$OUTPUT" != *gho_* ]] || fail 'login printed the token'
+  equal "$(< "$TOKEN_FILE")" gho_login_token
+  equal "$(stat -c %a "$TOKEN_FILE")" 600
+  equal "$(stat -c %a "${TOKEN_FILE%/*}")" 700
+  # The sign-in used a throwaway data directory that is removed afterwards.
+  [[ "$(< "$FAKE_OPENCODE_LOG")" == "$CASE/tmp/code-agent-login."* ]] || fail 'login did not isolate opencode data'
+  absent "$(< "$FAKE_OPENCODE_LOG")"
+  absent "$HOME/.local/share/opencode"
+  local leftovers=("$CASE/tmp"/* "${TOKEN_FILE%/*}"/.copilot-token.*)
+  equal "${#leftovers[@]}" 0
+  export FAKE_OPENCODE_PROVIDER=anthropic
+  reject 'no GitHub Copilot sign-in was saved' login
+  equal "$(< "$TOKEN_FILE")" gho_login_token
+  # Own-domain enterprise sign-ins would send the token to the wrong host.
+  export FAKE_OPENCODE_PROVIDER=enterprise-domain
+  reject 'GitHub Enterprise deployments with their own domain are not supported' login
+  contains "$OUTPUT" 'choose "GitHub.com"'
+  [[ "$OUTPUT" != *gho_* ]] || fail 'refused login printed the token'
+  equal "$(< "$TOKEN_FILE")" gho_login_token
+  leftovers=("$CASE/tmp"/* "${TOKEN_FILE%/*}"/.copilot-token.*)
+  equal "${#leftovers[@]}" 0
+  # Switching accounts replaces the token for the same Copilot host.
+  export FAKE_OPENCODE_PROVIDER=github-copilot
+  printf 'gho_previous_account\n' > "$TOKEN_FILE"
+  ok login
+  equal "$(< "$TOKEN_FILE")" gho_login_token
+  equal "$(stat -c %a "$TOKEN_FILE")" 600
+  unset FAKE_OPENCODE_PROVIDER
+  values[7]="$CASE/workspaces/token"
+  render
+  reject 'Copilot token file must not be inside' login
+  absent "$CASE/workspaces"
+  equal "$(count_command ls)" 0
+}
+
 configured_settings() {
   # Ambient variables must not override the packaged configuration.
   export CODE_AGENT_WORKSPACES_DIR=/wrong CODE_AGENT_UPSTREAM_DIR=/wrong
@@ -1314,7 +1472,7 @@ command_help() {
     contains "$OUTPUT" 'Commands:'
     contains "$OUTPUT" 'Configuration comes from dotfiles.agentSandbox'
   done
-  for command in setup start resume stop status sync cleanup help; do
+  for command in setup start resume stop status sync cleanup login help; do
     ok help "$command"
     contains "$OUTPUT" "Usage: code-agent $command"
     for form in --help -h help; do
@@ -1354,11 +1512,14 @@ if [ "${1:-}" = --case ]; then
   export GIT_CONFIG_GLOBAL="$CASE/gitconfig"
   # Render the same shell-escaped settings that Home Manager bakes into the command.
   SCRIPT="$CASE/bin/code-agent"
-  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory cacheDirectory)
-  values=("$CASE/workspaces" "$CASE/upstream" code-agent dotfiles-agent:latest 4 8G "$CASE/package-cache")
+  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory cacheDirectory copilotTokenFile opencodeConfig opencode)
+  values=("$CASE/workspaces" "$CASE/upstream" code-agent dotfiles-agent:latest 4 8G "$CASE/package-cache"
+    '' '{"autoupdate":false,"share":"disabled"}' "$CASE/bin/opencode")
   if [ "$CASE_NAME" = configured_settings ]; then
-    values=("$CASE/workspaces with ' quotes" "$CASE/upstream with spaces" custom-prefix custom-agent:configured 2 512M "$CASE/package cache with ' quotes")
+    values=("$CASE/workspaces with ' quotes" "$CASE/upstream with spaces" custom-prefix custom-agent:configured 2 512M "$CASE/package cache with ' quotes"
+      '' '{"model":"github-copilot/example model","share":"disabled"}' "$CASE/bin/opencode")
   fi
+  CREATE_EXTRA=()
   CACHE="${values[6]}"
   render
   export FAKE_MSB_STATE="$CASE/msb-state" FAKE_MSB_LOG="$CASE/msb.log"
@@ -1407,7 +1568,8 @@ tests=(roundtrip reuse mount_isolation cache_sharing cache_reuse cache_lazy_crea
   symlink_parent symlink_clone symlink_git dry_run partial_initialization
   checked_out_destination no_main lock_refusal wrong_branch paused_lifecycle
   inspect_failure start_failure resume_failure transition_verification reflog_cleanup
-  stash_cleanup annotated_tag_cleanup signed_push concurrent_setup interactive_lock configured_settings command_help)
+  stash_cleanup annotated_tag_cleanup signed_push concurrent_setup interactive_lock copilot_secret copilot_existing_sandbox
+  copilot_token_checks copilot_login configured_settings command_help)
 passed=0
 failed=0
 for test in "${tests[@]}"; do

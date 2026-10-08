@@ -10,6 +10,16 @@ image=@image@
 cpus=@cpus@
 memory=@memory@
 cache_directory=@cacheDirectory@
+copilot_token_file=@copilotTokenFile@
+opencode_config=@opencodeConfig@
+opencode=@opencode@
+# The real token is only ever placed in msb's host environment. The guest sees
+# the placeholder, which microsandbox replaces in requests to this host.
+copilot_secret_env=CODE_AGENT_COPILOT_TOKEN
+copilot_secret_host=api.githubcopilot.com
+copilot_auth_path=/root/.local/share/opencode/auth.json
+# shellcheck disable=SC2016
+copilot_auth_json='{"github-copilot":{"type":"oauth","refresh":"$MSB_CODE_AGENT_COPILOT_TOKEN","access":"$MSB_CODE_AGENT_COPILOT_TOKEN","expires":0}}'
 
 die() { printf '%s\n' "$*" >&2; exit 1; }
 command_help() {
@@ -29,6 +39,7 @@ command_help() {
       '  status   Show task paths and list sandboxes.' \
       '  sync     Fast-forward the host task branch from committed agent work.' \
       '  cleanup  Remove a sandbox and workspace with preservation checks.' \
+      '  login    Sign in to GitHub Copilot and store the token on the host only.' \
       '  help     Show general or command-specific help.' \
       '' \
       'TASK defaults to the current host branch. Explicit names are normalized.' \
@@ -48,6 +59,18 @@ command_help() {
     cleanup) description='Stop and remove the sandbox and task workspace. Refuse unpreserved files or Git objects unless --discard is provided. Retain upstream repositories, host branches, and incoming refs. Sandbox-local agent sessions and credentials are discarded.' ;;
     help)
       printf '%s\n' 'Usage: code-agent help [COMMAND]' '' 'Show general help or help for one lifecycle command.' 'Equivalent: code-agent COMMAND --help (or -h).'
+      return
+      ;;
+    login)
+      printf '%s\n' 'Usage: code-agent login' '' \
+        'Run the opencode GitHub Copilot device sign-in on the host and store only the' \
+        'resulting token in dotfiles.agentSandbox.copilotTokenFile (mode 600).' \
+        'Sandboxes never receive the token: new sandboxes get a placeholder that' \
+        "microsandbox replaces in requests to $copilot_secret_host." \
+        'Re-run to replace the token; existing Copilot sandboxes use it on their next start.' \
+        'To switch between a personal and an enterprise account on github.com, re-run and' \
+        'authorize as the other account. GHE.com and self-hosted deployments are not supported.' \
+        '' 'Help: --help, -h, or help. Configuration: dotfiles.agentSandbox in Home Manager.'
       return
       ;;
     *) printf 'Unknown command: %s\n' "$command" >&2; return 2 ;;
@@ -97,7 +120,7 @@ if [ "$#" -eq 1 ] && [ "$1" = --print-image ]; then printf '%s\n' "$image"; exit
 action="$1"
 shift
 case "$action" in
-  setup|start|resume|stop|status|sync|cleanup) ;;
+  setup|start|resume|stop|status|sync|cleanup|login) ;;
   *) printf 'Unknown command: %s\n' "$action" >&2; command_help >&2; exit 2 ;;
 esac
 for argument in "$@"; do
@@ -108,6 +131,58 @@ for argument in "$@"; do
       ;;
   esac
 done
+
+# Refuse token files where a sandbox could read them or Git could pick them up.
+check_token_location() {
+  local token_path root
+  token_path="$(realpath -m "$copilot_token_file")"
+  for root in "$@"; do
+    if [[ "$token_path/" == "$root/"* ]]; then
+      die 'Copilot token file must not be inside the host repository, workspace, upstream, or cache directories'
+    fi
+  done
+}
+copilot_token=''
+load_copilot_token() {
+  [ -n "$copilot_token_file" ] || die 'this sandbox uses the Copilot secret, but dotfiles.agentSandbox.copilotTokenFile is not set'
+  [ -f "$copilot_token_file" ] || die "Copilot token file is missing: $copilot_token_file (run code-agent login)"
+  local mode
+  mode="$(stat -L -c %a -- "$copilot_token_file")" || die "cannot inspect Copilot token file: $copilot_token_file"
+  (( (8#$mode & 8#077) == 0 )) || die "Copilot token file must not be accessible by group or others: $copilot_token_file (chmod 600)"
+  IFS= read -r copilot_token < "$copilot_token_file" || true
+  [[ "$copilot_token" =~ ^[A-Za-z0-9_.-]+$ ]] || die "Copilot token file must contain a single token: $copilot_token_file (run code-agent login)"
+}
+
+if [ "$action" = login ]; then
+  [ "$#" -eq 0 ] || { command_help login >&2; exit 2; }
+  [ -n "$copilot_token_file" ] || die 'set dotfiles.agentSandbox.copilotTokenFile before running code-agent login'
+  check_token_location "$(realpath -m "$workspace_directory")" "$(realpath -m "$upstream_directory")" "$(realpath -m "$cache_directory")"
+  login_dir="$(mktemp -d "${TMPDIR:-/tmp}/code-agent-login.XXXXXXXX")"
+  trap 'rm -rf -- "$login_dir"' EXIT
+  printf '%s\n' 'Starting the opencode sign-in. Choose "GitHub Copilot", then "GitHub.com" (also for enterprise' \
+    'accounts that sign in at github.com), and authorize in the browser as the account you want to use.' \
+    'The token is kept on the host only; your normal opencode credentials are not touched.' >&2
+  # A throwaway opencode data directory keeps this sign-in separate from the host's own.
+  XDG_DATA_HOME="$login_dir/data" XDG_CONFIG_HOME="$login_dir/config" XDG_STATE_HOME="$login_dir/state" \
+    XDG_CACHE_HOME="$login_dir/cache" "$opencode" auth login
+  token="$(jq -er '."github-copilot" | select(.type == "oauth") | .refresh | select(type == "string")' \
+    "$login_dir/data/opencode/auth.json" 2>/dev/null)" || die 'no GitHub Copilot sign-in was saved; run code-agent login again and choose GitHub Copilot'
+  # Only github.com sign-ins (including enterprise accounts on github.com) use
+  # the secret's host; GHE.com or self-hosted sign-ins would need another one.
+  if jq -e '."github-copilot".enterpriseUrl // empty' "$login_dir/data/opencode/auth.json" >/dev/null; then
+    die 'GitHub Enterprise deployments with their own domain are not supported; run code-agent login again and choose "GitHub.com" (also for enterprise accounts that sign in at github.com)'
+  fi
+  [[ "$token" =~ ^[A-Za-z0-9_.-]+$ ]] || die 'opencode saved an unexpected GitHub Copilot token format'
+  token_dir="$(dirname -- "$copilot_token_file")"
+  if [ ! -d "$token_dir" ]; then mkdir -p -- "$token_dir"; chmod 700 -- "$token_dir"; fi
+  token_tmp="$(mktemp "$token_dir/.copilot-token.XXXXXXXX")"
+  chmod 600 -- "$token_tmp"
+  printf '%s\n' "$token" > "$token_tmp"
+  mv -f -- "$token_tmp" "$copilot_token_file"
+  printf 'Saved the GitHub Copilot token to %s.\n' "$copilot_token_file"
+  printf '%s\n' 'New sandboxes use it automatically; existing Copilot sandboxes pick it up on their next start.'
+  exit 0
+fi
 task=''
 explicit_task=false
 if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then
@@ -180,6 +255,9 @@ for private_root in "$repo_root" "$workspace_root" "$upstream_root"; do
     die 'package cache must not overlap the host repository, workspace, or upstream directories'
   fi
 done
+if [ -n "$copilot_token_file" ]; then
+  check_token_location "$repo_root" "$workspace_root" "$upstream_root" "$cache_root"
+fi
 # One folder per task: the clone itself, mounted read-write as /workspace.
 # Metadata and locks live in a hidden sibling directory that is never mounted,
 # so the sandbox cannot tamper with them.
@@ -368,23 +446,41 @@ case "$action" in
   start|resume)
     require_clone
     [ "$(git config --file "$metadata" --get task.ready || true)" = true ] || die 'initialization incomplete; run code-agent setup first'
+    copilot_sandbox="$(git config --file "$metadata" --get task.copilotSecret || true)"
     if sandbox_exists; then
       case "$(sandbox_status)" in
         Running) ;;
         Paused) msb resume "$sandbox" ;;
-        Created|Stopped|Crashed) msb start "$sandbox" ;;
+        Created|Stopped|Crashed)
+          # msb re-reads secret values from its environment on every start.
+          if [ "$copilot_sandbox" = true ]; then
+            load_copilot_token
+            CODE_AGENT_COPILOT_TOKEN="$copilot_token" msb start "$sandbox"
+          else
+            msb start "$sandbox"
+          fi
+          ;;
         *) die 'sandbox is transitioning or has unknown status; retry later' ;;
       esac
     elif [ "$action" = resume ]; then
       die 'sandbox is absent; use code-agent start to recreate it'
     else
+      create_options=()
+      copilot_sandbox=false
+      if [ -n "$copilot_token_file" ]; then
+        load_copilot_token
+        copilot_sandbox=true
+        create_options+=(--secret "$copilot_secret_env@$copilot_secret_host")
+      fi
       mkdir -p "$cache_root"
       for cache in cargo/registry cargo/git gradle/caches gradle/wrapper maven/repository ivy; do
         [ "$(realpath -m "$cache_root/$cache")" = "$cache_root/$cache" ] || die 'refusing symlinked package cache directory'
         mkdir -p "$cache_root/$cache"
       done
       git config --file "$metadata" task.cacheDirectory "$cache_root"
-      msb create --name "$sandbox" --cpus "$cpus" \
+      git config --file "$metadata" task.copilotSecret "$copilot_sandbox"
+      # The token reaches msb only through its environment, never its arguments.
+      CODE_AGENT_COPILOT_TOKEN="$copilot_token" msb create --name "$sandbox" --cpus "$cpus" \
         --memory "$memory" \
         --volume "$bare_repo:/mnt/upstream.git:ro" \
         --volume "$clone:/workspace" \
@@ -400,9 +496,18 @@ case "$action" in
         --env npm_config_cache=/cache/npm --env YARN_CACHE_FOLDER=/cache/yarn \
         --env npm_config_store_dir=/cache/pnpm --env BUN_INSTALL_CACHE_DIR=/cache/bun \
         --env GOMODCACHE=/cache/go-mod --env GOCACHE=/cache/go-build \
-        --env COURSIER_CACHE=/cache/coursier "$image"
+        --env COURSIER_CACHE=/cache/coursier \
+        --env "OPENCODE_CONFIG_CONTENT=$opencode_config" \
+        "${create_options[@]}" "$image"
     fi
     [ "$(sandbox_status)" = Running ] || die 'sandbox did not start; retry later'
+    if [ "$copilot_sandbox" = true ]; then
+      # Point opencode at the placeholder. An existing auth.json (for example
+      # from a manual /connect inside the sandbox) is left untouched.
+      # shellcheck disable=SC2016
+      msb exec "$sandbox" -- bash -c 'set -e; mkdir -p "${1%/*}"; umask 077; if [ ! -e "$1" ]; then printf "%s\n" "$2" > "$1"; fi' \
+        code-agent "$copilot_auth_path" "$copilot_auth_json" || die 'cannot configure opencode Copilot placeholder in the sandbox'
+    fi
     warn_concurrent_caches
     printf '%s\n' 'Entering the repository. Launch your agent manually; commit before sync. Exiting leaves the sandbox running.'
     rmdir -- "$task_lock"

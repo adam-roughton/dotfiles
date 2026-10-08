@@ -168,6 +168,7 @@ needs access to `/dev/kvm`.
 
 ```text
 code-agent {setup|start|resume|stop|status|sync|cleanup} [TASK] [--discard] [--dry-run]
+code-agent login
 code-agent help [COMMAND]
 ```
 
@@ -235,6 +236,8 @@ dotfiles.agentSandbox = {
   image = "dotfiles-agent:latest";
   cpus = 4;
   memory = "8G";
+  copilotTokenFile = "${config.home.homeDirectory}/development/agent/credentials/github-copilot-token";
+  opencodeConfig = { model = "github-copilot/claude-opus-5.5"; };
 };
 ```
 
@@ -250,6 +253,8 @@ All settings except `enabled` are optional and have these defaults:
 | `sandboxPrefix` | `code-agent` |
 | `cpus` | `4` |
 | `memory` | `8G` |
+| `copilotTokenFile` | `null` (no Copilot secret) |
+| `opencodeConfig` | `{ autoupdate = false; share = "disabled"; }`, merged with your settings |
 
 Activate your Home Manager configuration before building the image.
 `make.sh image` reads the configured tag from `code-agent --print-image`.
@@ -260,6 +265,70 @@ microsandbox size syntax such as `8G` or `512M`.
 Keep paths and the sandbox prefix unchanged until existing tasks are cleaned
 up. CPU, memory, and image changes apply to newly created sandboxes, not
 existing ones.
+
+`opencodeConfig` is passed to new sandboxes as `OPENCODE_CONFIG_CONTENT`. It
+takes precedence over a repository's own opencode config. Set `model` there to
+pick a default model; otherwise choose one with `/models`.
+
+### GitHub Copilot Credentials
+
+opencode in the sandbox can use your GitHub Copilot subscription without the
+real token ever entering the sandbox. With `copilotTokenFile` set (enabled on
+`superposition` and `skyhook`), sign in once on the host:
+
+```sh
+code-agent login
+```
+
+This runs opencode's GitHub Copilot device sign-in with a throwaway data
+directory, so your normal host opencode credentials are untouched. Only the
+Copilot token is saved to `copilotTokenFile`, with permissions 600. Run it
+again to replace the token. To revoke it, remove the opencode app under GitHub
+→ Settings → Applications → Authorized OAuth Apps.
+
+When opencode asks for the deployment type, choose **GitHub.com**. This is
+also correct for enterprise accounts that sign in at github.com, such as
+enterprise-managed users or Copilot Business/Enterprise seats: their Copilot
+requests go to the same `api.githubcopilot.com`. GHE.com data-residency and
+self-hosted deployments, which use `copilot-api.<domain>`, are not supported;
+`login` refuses them.
+
+One sign-in is active at a time. To switch between a personal and an
+enterprise account, run `code-agent login` again and authorize in the browser
+as the other account. Sandboxes use the new token from their next start
+(`ca stop`, then `ca resume`); there is no need to recreate them. If your
+enterprise restricts third-party OAuth apps, an owner may need to approve the
+opencode app before the sign-in succeeds.
+
+How the token reaches Copilot:
+
+- New sandboxes are created with the microsandbox secret
+  `CODE_AGENT_COPILOT_TOKEN@api.githubcopilot.com`. `code-agent` gives `msb`
+  the token only through its environment, never on the command line. msb
+  stores a reference to that variable, not the value.
+- Inside the sandbox, opencode's `auth.json` holds only the placeholder
+  `$MSB_CODE_AGENT_COPILOT_TOKEN`. microsandbox swaps in the real token in
+  request headers to `api.githubcopilot.com` and nowhere else, so the agent
+  and any code it runs never see the token.
+- An existing `auth.json` is left alone, so `/connect` inside a sandbox still
+  works for other providers. Connecting Copilot that way puts a real token in
+  the sandbox.
+- msb reads the token again every time the sandbox starts. A new token takes
+  effect on the next start, and starting a Copilot sandbox fails if the token
+  file is missing. Running or paused sandboxes don't need it.
+- Sandboxes created before `copilotTokenFile` was set keep running without the
+  secret. Recreate them (`ca cleanup`, then `ca start`) to add it.
+- `code-agent` refuses token files that group or others can read, and token
+  files inside the repository, workspace, upstream, or cache directories.
+
+**TLS interception:** microsandbox can only substitute secrets in traffic it
+decrypts. Declaring the secret turns on TLS interception for all of the
+sandbox's HTTPS on port 443, not just Copilot. The guest is set up to trust the
+microsandbox CA through the system bundle, `SSL_CERT_FILE`, `CURL_CA_BUNDLE`,
+`REQUESTS_CA_BUNDLE` and `NODE_EXTRA_CA_CERTS`. Clients with their own trust
+stores, notably JVM tools (Gradle, Maven, sbt, Coursier), and clients that pin
+certificates may fail TLS in Copilot sandboxes. HTTP/3 (QUIC) is not
+intercepted.
 
 ### Shared Package Cache
 

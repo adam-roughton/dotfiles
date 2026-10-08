@@ -54,6 +54,7 @@ in rec{
   
   dotfiles.agentSandbox = {
     enabled = true;
+    copilotTokenFile = "${home.homeDirectory}/development/agent/credentials/github-copilot-token";
   };
 
 

@@ -1,12 +1,16 @@
 { config, pkgs, lib, ... }:
 let
   cfg = config.dotfiles.agentSandbox;
+  json = pkgs.formats.json { };
+  # opencode is only needed on the host for `code-agent login`.
+  opencode = if cfg.copilotTokenFile == null then "opencode" else "${pkgs.opencode}/bin/opencode";
   codeAgent = pkgs.writeShellApplication {
     name = "code-agent";
     runtimeInputs = with pkgs; [ coreutils gnused git jq ];
     text = lib.replaceStrings
-      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@cacheDirectory@" ]
-      (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory cfg.cacheDirectory ])
+      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" ]
+      (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory cfg.cacheDirectory
+        (if cfg.copilotTokenFile == null then "" else cfg.copilotTokenFile) (builtins.toJSON cfg.opencodeConfig) opencode ])
       (builtins.readFile ./scripts/code-agent);
   };
 in with lib; {
@@ -55,10 +59,35 @@ in with lib; {
         default = "8G";
         description = "Memory allocated to new sandboxes, using microsandbox size syntax (for example 8G or 512M).";
       };
+      copilotTokenFile = mkOption {
+        type = types.nullOr (types.strMatching "/[^\n:]*");
+        default = null;
+        example = literalExpression ''"''${config.home.homeDirectory}/development/agent/credentials/github-copilot-token"'';
+        description = ''
+          Absolute host path of the GitHub Copilot token used by opencode in new sandboxes, written by
+          `code-agent login`. The token stays on the host: sandboxes receive a placeholder that microsandbox
+          replaces in requests to api.githubcopilot.com. Enabling this turns on microsandbox TLS interception
+          for the sandbox's HTTPS traffic. Null disables the Copilot secret.
+        '';
+      };
+      opencodeConfig = mkOption {
+        type = json.type;
+        default = { };
+        defaultText = literalExpression ''{ autoupdate = false; share = "disabled"; }'';
+        example = literalExpression ''{ model = "github-copilot/claude-opus-5.5"; }'';
+        description = ''
+          opencode configuration passed to new sandboxes as OPENCODE_CONFIG_CONTENT. Merged with the
+          defaults, which disable self-updates and session sharing; override them explicitly if needed.
+        '';
+      };
     };
   };
 
   config = {
+    dotfiles.agentSandbox.opencodeConfig = {
+      autoupdate = mkDefault false;
+      share = mkDefault "disabled";
+    };
     home.packages = with pkgs; lib.optionals cfg.enabled [
       codeAgent
     ];

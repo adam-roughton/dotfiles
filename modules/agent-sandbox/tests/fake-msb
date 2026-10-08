@@ -4,6 +4,10 @@ set -euo pipefail
 : "${FAKE_MSB_STATE:?}" "${FAKE_MSB_LOG:?}"
 printf '%q ' "$@" >> "$FAKE_MSB_LOG"
 printf '\n' >> "$FAKE_MSB_LOG"
+# Record which commands received the secret through their environment.
+if [ -n "${CODE_AGENT_COPILOT_TOKEN:-}" ]; then
+  printf '%s %s\n' "$1" "$CODE_AGENT_COPILOT_TOKEN" >> "$FAKE_MSB_LOG.env"
+fi
 command="${1:?}"
 shift
 if [ "${FAKE_MSB_FAIL:-}" = "$command" ]; then
@@ -55,8 +59,9 @@ case "$command" in
     rm -- "$FAKE_MSB_STATE/$2"
     ;;
   exec)
-    [ "${1:-}" = --tty ] && [ -f "$FAKE_MSB_STATE/${2:-}" ] || exit 3
-    [ "$(< "$FAKE_MSB_STATE/$2")" = Running ] || exit 3
+    if [ "${1:-}" = --tty ]; then shift; fi
+    [ -f "$FAKE_MSB_STATE/${1:-}" ] || exit 3
+    [ "$(< "$FAKE_MSB_STATE/$1")" = Running ] || exit 3
     if [ -n "${FAKE_MSB_EXEC_LOCK:-}" ]; then
       [ ! -e "$FAKE_MSB_EXEC_LOCK" ] || { printf 'task lock held during exec\n' >&2; exit 4; }
     fi

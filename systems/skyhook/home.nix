@@ -1,4 +1,4 @@
-{ user, pkgs, lib, ... }:
+{ user, pkgs, lib, config, ... }:
 {
   imports = [ 
     ../../modules/shell
@@ -15,6 +15,7 @@
 
   dotfiles.agentSandbox = {
     enabled = true;
+    copilotTokenFile = "${config.home.homeDirectory}/development/agent/credentials/github-copilot-token";
   };
 
   home.packages = with pkgs; [
