@@ -14,7 +14,9 @@ let
   };
   contents = pkgs.buildEnv {
     name = "dotfiles-agent-image-contents";
-    paths = [ pkgs.bashInteractive pkgs.zsh ] ++ home.config.home.packages;
+    # msb passes the host's TERM through, and ncurses' own database lacks
+    # xterm-kitty, so ship kitty's terminfo entry.
+    paths = [ pkgs.bashInteractive pkgs.zsh pkgs.kitty.terminfo ] ++ home.config.home.packages;
     pathsToLink = [ "/bin" "/sbin" "/lib" "/share" ];
   };
 in
@@ -46,6 +48,8 @@ pkgs.dockerTools.streamLayeredImage {
       "HOME=/home/adamr"
       "PATH=/bin:/sbin"
       "SHELL=${pkgs.zsh}/bin/zsh"
+      # The trailing empty entry keeps ncurses' built-in database as a fallback.
+      "TERMINFO_DIRS=/share/terminfo:"
       "USER=adamr"
     ];
     User = "1000:1000";
