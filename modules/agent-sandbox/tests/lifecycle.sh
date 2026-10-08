@@ -153,7 +153,7 @@ roundtrip() {
   absent "$CACHE"
   ok start "$TASK"
   expected_create
-  logged exec --tty "$SANDBOX" -- zsh -c 'cd /workspace && exec zsh'
+  logged exec --tty "$SANDBOX" -- zsh -c 'cd /workspace && exec "$@"' code-agent opencode
   commit_work
   ok sync "$TASK"
   equal "$(git -C "$HOST" rev-parse "$BRANCH")" "$(git -C "$CLONE" rev-parse HEAD)"
@@ -473,12 +473,24 @@ readable_layout() {
   equal "$entries" "$(printf '%s\n' .code-agent "$repo_key-improve_api")"
   ok start "$TASK"
   expected_create
-  logged exec --tty "$SANDBOX" -- zsh -c 'cd /workspace && exec zsh'
+  logged exec --tty "$SANDBOX" -- zsh -c 'cd /workspace && exec "$@"' code-agent opencode
   # Repository names are normalized for paths and sandbox names.
   new_repo "$CASE/odd/My.Repo Name!"
   setup 'Improve API'
   equal "${CLONE##*/}" "my_repo_name-$(short_hash "$(realpath -e "$HOST")" 8)-improve_api"
   equal "${SANDBOX}" "code-agent-${CLONE##*/}"
+}
+
+attach_command() {
+  setup
+  ok start "$TASK"
+  logged exec --tty "$SANDBOX" -- zsh -c 'cd /workspace && exec "$@"' code-agent opencode
+  ok stop "$TASK"
+  ok resume "$TASK" -- git status --short
+  logged exec --tty "$SANDBOX" -- zsh -c 'cd /workspace && exec "$@"' code-agent git status --short
+  reject 'Usage: code-agent start' start "$TASK" --
+  reject 'Usage: code-agent resume' resume "$TASK" --
+  reject 'Usage: code-agent stop' stop "$TASK" -- git status
 }
 
 task_name_clash() {
@@ -1292,7 +1304,7 @@ copilot_token() {
 placeholder_exec() {
   # shellcheck disable=SC2016
   logged exec "$SANDBOX" -- bash -c 'set -e; mkdir -p "${1%/*}"; umask 077; if [ ! -e "$1" ]; then printf "%s\n" "$2" > "$1"; fi' \
-    code-agent /root/.local/share/opencode/auth.json \
+    code-agent /home/adamr/.local/share/opencode/auth.json \
     '{"github-copilot":{"type":"oauth","refresh":"$MSB_CODE_AGENT_COPILOT_TOKEN","access":"$MSB_CODE_AGENT_COPILOT_TOKEN","expires":0}}'
 }
 secret_env_log() { if [ -f "$FAKE_MSB_LOG.env" ]; then cat -- "$FAKE_MSB_LOG.env"; fi; }
@@ -1557,7 +1569,7 @@ tests=(roundtrip reuse mount_isolation cache_sharing cache_reuse cache_lazy_crea
   cache_overlap_repo_equal cache_overlap_repo_descendant cache_overlap_repo_ancestor
   cache_overlap_workspace_equal cache_overlap_workspace_descendant cache_overlap_workspace_ancestor
   cache_overlap_upstream_equal cache_overlap_upstream_descendant cache_overlap_upstream_ancestor
-  repo_identity task_identity readable_layout task_name_clash long_task_names legacy_layout main_task rebased_source
+  repo_identity task_identity readable_layout attach_command task_name_clash long_task_names legacy_layout main_task rebased_source
   optional_task slash_branch main_prompt_setup main_prompt_start explicit_branch_setup explicit_branch_start
   missing_task dirty_handover staged_handover untracked_handover divergent_sync noncurrent_sync
   other_worktree_sync dirty_clone_sync repeated_sync

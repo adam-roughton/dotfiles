@@ -212,7 +212,8 @@ through Homebrew, but on Linux you have to install it yourself, and microsandbox
 needs access to `/dev/kvm`.
 
 ```text
-code-agent {setup|start|resume|stop|status|sync|cleanup} [TASK] [--discard] [--dry-run]
+code-agent {setup|start|resume} [TASK] [-- COMMAND [ARG...]]
+code-agent {stop|status|sync|cleanup} [TASK] [--discard] [--dry-run]
 code-agent login
 code-agent help [COMMAND]
 ```
@@ -512,12 +513,12 @@ including task metadata, is not exposed to the sandbox.
 Host Git author identity is copied into the clone, but credentials and signing
 keys are not. Commit signing is disabled locally in the clone.
 
-The attached shell automatically enters `/workspace`. Launch the agent
-yourself and supply its instructions manually; task text is not delivered to
-the agent automatically:
+`start` and `resume` run `opencode` in `/workspace` by default. Supply a
+different command after `--` when needed; its arguments are passed unchanged:
 
 ```sh
-opencode
+ca start -- bash
+ca resume -- git status
 # After reviewing the changes, commit the files you intend to transfer.
 git add path/to/changed-file
 git commit -m "Improve API error handling"

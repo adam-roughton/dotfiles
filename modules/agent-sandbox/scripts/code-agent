@@ -17,7 +17,7 @@ opencode=@opencode@
 # the placeholder, which microsandbox replaces in requests to this host.
 copilot_secret_env=CODE_AGENT_COPILOT_TOKEN
 copilot_secret_host=api.githubcopilot.com
-copilot_auth_path=/root/.local/share/opencode/auth.json
+copilot_auth_path=/home/adamr/.local/share/opencode/auth.json
 # shellcheck disable=SC2016
 copilot_auth_json='{"github-copilot":{"type":"oauth","refresh":"$MSB_CODE_AGENT_COPILOT_TOKEN","access":"$MSB_CODE_AGENT_COPILOT_TOKEN","expires":0}}'
 
@@ -33,8 +33,8 @@ command_help() {
       '' \
       'Commands:' \
       '  setup    Prepare the host branch, upstream snapshot, and agent clone.' \
-      '  start    Set up or resume a sandbox and attach a shell.' \
-      '  resume   Attach to an existing sandbox without creating one.' \
+      '  start    Set up or resume a sandbox and run opencode or a command.' \
+      '  resume   Run opencode or a command in an existing sandbox.' \
       '  stop     Stop a sandbox while retaining its workspace and state.' \
       '  status   Show task paths and list sandboxes.' \
       '  sync     Fast-forward the host task branch from committed agent work.' \
@@ -51,8 +51,8 @@ command_help() {
   fi
   case "$command" in
     setup) description='Create or select the task branch, publish its committed snapshot, and prepare the agent clone. Does not create a sandbox.' ;;
-    start) description='Perform setup, create or resume the sandbox, and enter /workspace. Launch the coding agent manually. Exiting the shell leaves the sandbox running.' ;;
-    resume) description='Start or unpause an existing sandbox and enter /workspace. Does not create a missing sandbox or switch the host branch.' ;;
+    start) description='Perform setup, create or resume the sandbox, then run opencode in /workspace. Pass a command after -- to run it instead. Exiting leaves the sandbox running.' ;;
+    resume) description='Start or unpause an existing sandbox, then run opencode in /workspace. Pass a command after -- to run it instead. Does not create a missing sandbox or switch the host branch.' ;;
     stop) description='Stop the sandbox, retaining the workspace and sandbox state. A missing sandbox is harmless; the task must have setup metadata.' ;;
     status) description='Print the task branch, sandbox name, workspace, and upstream paths, then list microsandboxes. The task must have setup metadata.' ;;
     sync) description='Import committed agent HEAD and fast-forward the host task branch. A checked-out task branch also updates host files. Divergence stops the update and retains an incoming ref for manual recovery. Does not publish or merge into main.' ;;
@@ -76,6 +76,7 @@ command_help() {
     *) printf 'Unknown command: %s\n' "$command" >&2; return 2 ;;
   esac
   printf 'Usage: code-agent %s [TASK]' "$command"
+  if [ "$command" = start ] || [ "$command" = resume ]; then printf ' [-- COMMAND [ARG...]]'; fi
   if [ "$command" = cleanup ]; then printf ' [--discard] [--dry-run]'; fi
   printf '\n\n%s\n\n' "$description"
   printf '%s\n' \
@@ -88,6 +89,9 @@ command_help() {
       ;;
     *) printf '%s\n' '  On main, provide TASK explicitly; no host branch is created or selected.' ;;
   esac
+  if [ "$command" = start ] || [ "$command" = resume ]; then
+    printf '%s\n' 'Run command COMMAND with its arguments in /workspace instead of the default opencode.'
+  fi
   case "$command" in
     setup|start|resume|sync)
       printf '\n%s\n' 'Safety: host tracked, staged, and untracked changes must be committed or stashed.'
@@ -125,6 +129,7 @@ case "$action" in
 esac
 for argument in "$@"; do
   case "$argument" in
+    --) break ;;
     --help|-h|help)
       command_help "$action"
       exit 0
@@ -189,6 +194,15 @@ if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then
   task="$1"
   explicit_task=true
   shift
+fi
+attach_command=(opencode)
+if [ "$action" = start ] || [ "$action" = resume ]; then
+  if [ "${1:-}" = -- ]; then
+    shift
+    [ "$#" -gt 0 ] || { command_help "$action" >&2; exit 2; }
+    attach_command=("$@")
+    set --
+  fi
 fi
 discard=false
 dry_run=false
@@ -509,10 +523,10 @@ case "$action" in
         code-agent "$copilot_auth_path" "$copilot_auth_json" || die 'cannot configure opencode Copilot placeholder in the sandbox'
     fi
     warn_concurrent_caches
-    printf '%s\n' 'Entering the repository. Launch your agent manually; commit before sync. Exiting leaves the sandbox running.'
+    printf '%s\n' 'Entering the repository. Commit before sync. Exiting leaves the sandbox running.'
     rmdir -- "$task_lock"
     locked=false
-    msb exec --tty "$sandbox" -- zsh -c 'cd /workspace && exec zsh'
+    msb exec --tty "$sandbox" -- zsh -c 'cd /workspace && exec "$@"' code-agent "${attach_command[@]}"
     ;;
   stop)
     if sandbox_exists; then stop_sandbox; fi
