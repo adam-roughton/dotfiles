@@ -153,6 +153,17 @@ system directly on a Linux host (or a host with a Linux builder configured):
 The default command starts zsh in `/workspace`. Mount a project directory
 there when creating a microsandbox environment.
 
+opencode in the image is configured with a Playwright MCP server
+(`~/.config/opencode/opencode.json`), so agents can drive a headless Chromium:
+navigate, click, fill forms, read accessibility snapshots and take screenshots.
+Each session uses an in-memory browser profile, and files the server writes go
+to `/tmp/playwright-mcp`. Chromium and its fonts come from nixpkgs; browsers
+that npm-installed Playwright downloads do not run in the image, which has no
+FHS dynamic loader. On start the server adds the microsandbox CA to
+`~/.pki/nssdb`, because Chromium does not use the system certificate bundle
+(see TLS interception below). Pi has no MCP support and does not get the
+browser tools.
+
 ### Raspberry Pi Images
 
 The Raspberry Pi boots through the GPU firmware, then U-Boot, then extlinux,
@@ -373,10 +384,11 @@ How the token reaches Copilot:
 decrypts. Declaring the secret turns on TLS interception for all of the
 sandbox's HTTPS on port 443, not just Copilot. The guest is set up to trust the
 microsandbox CA through the system bundle, `SSL_CERT_FILE`, `CURL_CA_BUNDLE`,
-`REQUESTS_CA_BUNDLE` and `NODE_EXTRA_CA_CERTS`. Clients with their own trust
-stores, notably JVM tools (Gradle, Maven, sbt, Coursier), and clients that pin
-certificates may fail TLS in Copilot sandboxes. HTTP/3 (QUIC) is not
-intercepted.
+`REQUESTS_CA_BUNDLE` and `NODE_EXTRA_CA_CERTS`. The Playwright MCP server adds
+the CA to Chromium's NSS database (`~/.pki/nssdb`) each time it starts. Clients
+with their own trust stores, notably JVM tools (Gradle, Maven, sbt, Coursier),
+and clients that pin certificates may fail TLS in Copilot sandboxes. HTTP/3
+(QUIC) is not intercepted.
 
 ### Shared Package Cache
 

@@ -3,6 +3,50 @@ let
   # One headless JDK shared by every JVM tool. Each tool otherwise wraps its own full
   # (GTK/X11) JDK, so the image would carry several JDKs.
   jdk = pkgs.jdk17_headless;
+
+  # Playwright MCP with Chromium only (the default browser set also ships
+  # Firefox and WebKit). With the nixpkgs default browser (`chromium`, the
+  # Chrome for Testing alias), Playwright runs the full Chromium build in
+  # headless mode as well, so the headless shell is not needed either.
+  playwright-mcp = pkgs.playwright-mcp.override {
+    playwright-driver = pkgs.playwright-driver // {
+      browsers = pkgs.playwright-driver.browsers-chromium;
+    };
+  };
+
+  # nixpkgs' Playwright Chromium defaults to a fontconfig without any fonts, so
+  # pages would render without text. Liberation is metric-compatible with
+  # Arial, Times New Roman and Courier New, which keeps layouts realistic.
+  browserFonts = pkgs.makeFontsConf {
+    fontDirectories = with pkgs; [ dejavu_fonts liberation_ttf noto-fonts-color-emoji ];
+  };
+
+  # Copilot sandboxes intercept HTTPS with the microsandbox CA. Chromium ignores
+  # SSL_CERT_FILE and the system bundle; it trusts its own root store plus the
+  # user's NSS database, so add the CA there on every start (the CA may change
+  # between sandboxes). stdout is the MCP protocol channel, so all setup output
+  # goes to stderr. A failed import only breaks HTTPS sites, not the server.
+  playwrightMcp = pkgs.writeShellApplication {
+    name = "playwright-mcp";
+    runtimeInputs = [ pkgs.nssTools ];
+    runtimeEnv.FONTCONFIG_FILE = "${browserFonts}";
+    text = ''
+      ca=/.msb/tls/ca.pem
+      nssdb_dir="$HOME/.pki/nssdb"
+      nssdb="sql:$nssdb_dir"
+      if [ -r "$ca" ]; then
+        if ! {
+          mkdir -p "$nssdb_dir" &&
+            { [ -e "$nssdb_dir/cert9.db" ] || certutil -N -d "$nssdb" --empty-password; } &&
+            { while certutil -D -d "$nssdb" -n microsandbox 2>/dev/null; do :; done; } &&
+            certutil -A -d "$nssdb" -n microsandbox -t C,, -i "$ca"
+        } >&2; then
+          echo "playwright-mcp: cannot add $ca to $nssdb_dir; HTTPS pages will fail certificate checks" >&2
+        fi
+      fi
+      exec ${lib.getExe playwright-mcp} "$@"
+    '';
+  };
 in {
   imports = [
     ../../modules/shell
@@ -39,9 +83,25 @@ in {
     package = jdk;
   };
 
+  # Writes ~/.config/opencode/opencode.json. code-agent's OPENCODE_CONFIG_CONTENT
+  # is merged on top of it.
+  programs.opencode = {
+    enable = true;
+    settings.mcp.playwright = {
+      type = "local";
+      command = [
+        (lib.getExe playwrightMcp)
+        "--headless"
+        # Keep the browser profile in memory; each session starts clean.
+        "--isolated"
+        "--output-dir"
+        "/tmp/playwright-mcp"
+      ];
+    };
+  };
+
   home.packages = with pkgs; [
-    # agents
-    opencode
+    # agents (opencode comes from programs.opencode)
     pi-coding-agent
 
     # base userland (the image has no OS underneath Home Manager's packages)
