@@ -15,10 +15,11 @@ let
     name = "code-agent";
     runtimeInputs = with pkgs; [ coreutils gnused git jq ];
     text = lib.replaceStrings
-      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@rootDisk@" "@networkProfiles@" "@networkRules@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" "@agentProfile@" ]
+      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@rootDisk@" "@networkProfiles@" "@networkRules@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" "@agentProfile@" "@dotfilesDirectory@" ]
       (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory cfg.rootDisk (lib.concatStringsSep "," cfg.networkProfiles) (lib.concatStringsSep "," networkRules) cfg.cacheDirectory
         (if cfg.copilotTokenFile == null then "" else cfg.copilotTokenFile) (builtins.toJSON cfg.opencodeConfig) opencode
-        (if cfg.agentProfile == null then "" else cfg.agentProfile) ])
+        (if cfg.agentProfile == null then "" else cfg.agentProfile)
+        (if cfg.dotfilesDirectory == null then "" else cfg.dotfilesDirectory) ])
       (builtins.readFile ./scripts/code-agent);
   };
 in with lib; {
@@ -56,6 +57,15 @@ in with lib; {
         type = types.nonEmptyStr;
         default = "dotfiles-agent:latest";
         description = "Microsandbox image tag used by code-agent and make.sh image.";
+      };
+      dotfilesDirectory = mkOption {
+        type = types.nullOr (types.strMatching "/[^\n]*");
+        default = "${config.home.homeDirectory}/dotfiles";
+        defaultText = literalExpression ''"''${config.home.homeDirectory}/dotfiles"'';
+        description = ''
+          Absolute host path of this dotfiles checkout. code-agent runs its make.sh to build project images
+          for repositories with a shell.nix (make.sh image project). Null leaves shell.nix files unapplied.
+        '';
       };
       cpus = mkOption {
         type = types.ints.positive;

@@ -71,5 +71,12 @@
         # infra-agent built from an example configuration (a check and a reference).
         infra-agent-example = import ./modules/infra-agent/tests/example.nix { inherit inputs system; };
       });
+
+    # Per-project agent images (systems/agent-computer/project.nix). They read
+    # their inputs from the environment and so only evaluate with --impure;
+    # legacyPackages keeps them out of `nix flake check` and `nix flake show`.
+    legacyPackages = nixpkgs.lib.genAttrs [ "aarch64-linux" "x86_64-linux" ] (system: {
+      agent-project = import ./systems/agent-computer/project.nix { inherit inputs system; };
+    });
   };
 }

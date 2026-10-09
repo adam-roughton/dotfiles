@@ -32,8 +32,10 @@ let
     "tf" = "todo.sh list";
   }
     // cfg.extraAliases
-    // lib.optionalAttrs config.dotfiles.agentSandbox.enabled { "ca" = "code-agent"; }
-    // lib.optionalAttrs config.dotfiles.infraAgent.enabled { "ia" = "infra-agent"; };
+    # Not every configuration imports the modules that declare these options
+    # (the agent image, for one), so treat a missing option as disabled.
+    // lib.optionalAttrs (lib.attrByPath [ "dotfiles" "agentSandbox" "enabled" ] false config) { "ca" = "code-agent"; }
+    // lib.optionalAttrs (lib.attrByPath [ "dotfiles" "infraAgent" "enabled" ] false config) { "ia" = "infra-agent"; };
 
   dotfiles.agentSandbox = {
     enabled = true;

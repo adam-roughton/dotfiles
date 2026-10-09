@@ -128,6 +128,13 @@ uncompressed tar (the format `msb load` reads), so a full copy of the image is
 never stored in `/nix/store`. `make.sh image` writes the stream to a temporary
 file, loads it, and deletes the file.
 
+Every store path is its own image layer (`maxLayers` is above the path count),
+so a path's layer is identical in every image built from the same nixpkgs.
+microsandbox stores layers once by content, which keeps [project
+images](#project-environments-shellnix) cheap: they only add the layers of
+their own packages. Docker's 127-layer limit does not apply to microsandbox, but
+it does to Docker, so these images are not meant for `docker load`.
+
 On Linux hosts `make.sh image` builds natively with the host's Nix (flakes are
 enabled for that invocation, so `nix.conf` changes are not required) and does
 not need Docker or trusted-user settings.
@@ -364,6 +371,7 @@ dotfiles.agentSandbox = {
   copilotTokenFile = "${config.home.homeDirectory}/development/agent/credentials/github-copilot-token";
   opencodeConfig = { model = "github-copilot/claude-opus-5.5"; };
   agentProfile = "code";
+  dotfilesDirectory = "${config.home.homeDirectory}/dotfiles";
 };
 ```
 
@@ -386,6 +394,7 @@ All settings except `enabled` are optional and have these defaults:
 | `copilotTokenFile` | `null` (no Copilot secret) |
 | `opencodeConfig` | `{ autoupdate = false; share = "disabled"; }`, merged with your settings |
 | `agentProfile` | `code` (`null` for no profile) |
+| `dotfilesDirectory` | `<homeDirectory>/dotfiles` (`null` to ignore `shell.nix` files) |
 
 Activate your Home Manager configuration before building the image.
 `make.sh image` reads the configured tag from `code-agent --print-image`.
@@ -426,6 +435,60 @@ opencode silently ignores a missing `OPENCODE_CONFIG`, so `code-agent` refuses
 to attach when the image lacks the profile. That happens with an image built
 before the profile existed: rebuild it and recreate the sandbox. Sandboxes
 created without a profile skip the check.
+
+### Project Environments (shell.nix)
+
+When the host checkout has a `shell.nix` at its root (tracked or ignored), new
+sandboxes for it use a project image: the agent image plus that shell's
+environment, baked in when the image is built. The sandbox needs neither Nix
+nor a network connection for it, and starting a sandbox from an existing project
+image costs nothing extra. `code-agent start` runs `make.sh image project` from
+`dotfilesDirectory` before creating the sandbox, which:
+
+1. Evaluates (without building) the agent image and the shell, and derives a
+   key from the two derivations. On macOS this runs in the builder container
+   and takes a few seconds.
+2. Uses `dotfiles-agent:<repo>-<path hash>-<key>` if it is registered.
+3. Otherwise builds and loads it, then removes the repository's other project
+   images. Images still used by a sandbox are kept until a later build, because
+   `msb rmi --force` would only untag them and leave their storage behind. The
+   default image and other repositories' images are never removed.
+
+The shell is rebuilt when `shell.nix` or anything it imports changes the
+shell's derivation, and when the agent image definition changes (for example
+after `make.sh update`). Existing sandboxes keep the image they were created
+with; recreate a task's sandbox to pick up changes. Builds use the dotfiles
+checkout as it is, including uncommitted changes, so a project image can be
+newer than the registered default image.
+
+`<nixpkgs>` in `shell.nix`, and in project files it imports, resolves to the
+image's pinned nixpkgs rather than the host's `NIX_PATH`, so the environment
+reuses the agent image's packages, and their layers, where it can. A `shell.nix`
+that is a function receives `pkgs` and `lib` for the arguments it declares, as
+in `{ pkgs ? import <nixpkgs> { } }: pkgs.mkShell { ... }`. Shells that pin
+their own nixpkgs work too, but bring their own toolchain.
+
+On attach, `code-agent` sources the environment (`nix print-dev-env` output,
+stored in `/etc/agent-project/env.sh`) in bash, which also runs the
+`shellHook`, and then starts opencode (or the command after `--`) with
+the environment's variables. Commands run by the agent inherit them. The
+environment's `PATH` entries come before the image's. `$out` and the other
+output variables point at `/workspace/outputs`, as `nix develop` run in the
+workspace would set them. Shells that need user namespaces (`buildFHSEnv`) or
+host state in their `shellHook` are not supported.
+
+Build or refresh a project image directly with:
+
+```sh
+./make.sh image project ~/src/my-project [--name NAME] [--force]
+```
+
+`--name` sets the tag prefix (default: the directory name; `code-agent` passes
+`<repo>-<path hash>`). On macOS the project directory must be shared with the
+Docker VM, like this repository. The builder volume keeps only the latest
+project image's store paths, so rebuilding an older project's image downloads
+its packages again. Project and agent image builds are serialized with the lock
+`~/.cache/dotfiles/agent-image.lock`.
 
 ### GitHub Copilot Credentials
 

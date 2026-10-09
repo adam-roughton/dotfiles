@@ -41,6 +41,15 @@ read-only source material.
 - Gradle caches can retain compiled project scripts and embedded secret values;
   do not embed credentials in build scripts.
 
+## Project Environment
+
+- If `/etc/agent-project/env.sh` exists, this sandbox was built with the
+  project's `shell.nix` environment, and your commands already run inside it
+  (`IN_NIX_SHELL` is set). Do not source it again.
+- Nix is not available here. Changes to `shell.nix` take effect only in a new
+  sandbox; if the project needs tools the environment lacks, report it to the
+  host operator.
+
 ## Agent Changes
 
 - Inspect the repository and its existing instructions before editing.
