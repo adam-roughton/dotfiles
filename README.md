@@ -112,9 +112,9 @@ configuration.
 Build an OCI image for agent sandboxes. The image uses the same zsh, git and
 vim configuration as the workstations (Home Manager dotfiles are installed for
 the `adamr` user in `/home/adamr`). It includes the core shell tools; the C, Python, Node.js, Rust and JVM
-toolchains; database clients; and the Azure CLI. There are no AWS or Kubernetes
-CLIs: infrastructure access goes through the [Infra Agent](#infra-agent)
-broker. Its package set is defined in `systems/agent-computer/home.nix`. Workstation-only
+toolchains; and database clients. There are no AWS, Azure or Kubernetes CLIs:
+infrastructure access goes through the [Infra Agent](#infra-agent) broker. Its
+package set is defined in `systems/agent-computer/home.nix`. Workstation-only
 tools are left out (`dotfiles.shell.workstation = false`), as are host
 credentials such as the GPG signing key. The image is built for the current host
 system and is suitable for loading into microsandbox:

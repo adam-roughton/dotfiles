@@ -183,8 +183,8 @@ in {
     postgresql
     mariadb.client
 
-    # cloud (infra access goes through the infra-agent broker's MCP tools)
-    azure-cli
+    # No cloud or Kubernetes CLIs: infra access goes through the infra-agent
+    # broker's MCP tools.
   ];
 
   home.file."AGENTS.md".source = ./AGENTS.md;
