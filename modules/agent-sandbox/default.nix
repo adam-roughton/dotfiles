@@ -8,9 +8,10 @@ let
     name = "code-agent";
     runtimeInputs = with pkgs; [ coreutils gnused git jq ];
     text = lib.replaceStrings
-      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@rootDisk@" "@networkProfiles@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" ]
+      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@rootDisk@" "@networkProfiles@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" "@agentProfile@" ]
       (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory cfg.rootDisk (concatStringsSep "," cfg.networkProfiles) cfg.cacheDirectory
-        (if cfg.copilotTokenFile == null then "" else cfg.copilotTokenFile) (builtins.toJSON cfg.opencodeConfig) opencode ])
+        (if cfg.copilotTokenFile == null then "" else cfg.copilotTokenFile) (builtins.toJSON cfg.opencodeConfig) opencode
+        (if cfg.agentProfile == null then "" else cfg.agentProfile) ])
       (builtins.readFile ./scripts/code-agent);
   };
 in with lib; {
@@ -88,12 +89,26 @@ in with lib; {
         description = ''
           opencode configuration passed to new sandboxes as OPENCODE_CONFIG_CONTENT. Merged with the
           defaults, which disable self-updates and session sharing; override them explicitly if needed.
+          Applied over the agent profile, and arrays replace rather than append: setting skills.paths
+          here hides the profile's skills.
+        '';
+      };
+      agentProfile = mkOption {
+        type = types.nullOr (types.strMatching "[a-z0-9][a-z0-9_-]*");
+        default = "code";
+        description = ''
+          Agent profile (dotfiles.agentProfiles in the agent image) used by new sandboxes. Sets
+          OPENCODE_CONFIG to the profile's opencode.json, which adds the profile's skills and settings,
+          and AGENT_PROFILE to its name. Attaching fails if the image lacks the profile. Null runs
+          opencode with the image's global configuration only.
         '';
       };
     };
   };
 
   config = {
+    warnings = optional (cfg.agentProfile != null && hasAttrByPath [ "skills" "paths" ] cfg.opencodeConfig)
+      "dotfiles.agentSandbox.opencodeConfig sets skills.paths, which replaces the skills of agent profile '${cfg.agentProfile}'. Add the skills to the profile instead.";
     dotfiles.agentSandbox.opencodeConfig = {
       autoupdate = mkDefault false;
       share = mkDefault "disabled";

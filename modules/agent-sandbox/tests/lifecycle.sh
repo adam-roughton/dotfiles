@@ -4,6 +4,9 @@ set -euo pipefail
 TEST_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 SELF="$TEST_DIR/lifecycle.sh"
 TEMPLATE="$(cd -- "$TEST_DIR/../scripts" && pwd -P)/code-agent"
+# The guest-side attach wrapper, kept identical to code-agent's attach_script.
+# shellcheck disable=SC2016
+ATTACH_SCRIPT='if [ -n "${OPENCODE_CONFIG:-}" ] && [ ! -r "$OPENCODE_CONFIG" ]; then printf "%s\n" "code-agent: this sandbox image has no agent profile ${AGENT_PROFILE:-} ($OPENCODE_CONFIG). Rebuild the image with make.sh image --force (after cleaning up the sandboxes that use it), then start the task again." >&2; exit 1; fi; cd /workspace && exec "$@"'
 
 fail() { printf 'FAIL: %s\n%s\n' "$*" "${OUTPUT:-}" >&2; exit 1; }
 equal() { [ "$1" = "$2" ] || fail "expected [$2], got [$1]"; }
@@ -87,6 +90,11 @@ logged() {
   fail "missing msb invocation: $expected"
 }
 expected_create() {
+  local profile=()
+  if [ -n "${values[12]}" ]; then
+    profile=(--env "OPENCODE_CONFIG=/home/adamr/.config/agent-profiles/${values[12]}/opencode.json"
+      --env "AGENT_PROFILE=${values[12]}")
+  fi
   logged create --name "${1:-$SANDBOX}" --cpus "${3:-4}" --memory "${4:-8G}" --root-disk "${values[6]}" \
     --net "${values[7]}" \
     --volume "$UPSTREAM:/mnt/upstream.git:ro" --volume "${2:-$CLONE}:/workspace" \
@@ -104,7 +112,7 @@ expected_create() {
     --env GOMODCACHE=/cache/go-mod --env GOCACHE=/cache/go-build \
     --env COURSIER_CACHE=/cache/coursier \
     --env "OPENCODE_CONFIG_CONTENT=${values[10]}" \
-    "${CREATE_EXTRA[@]}" "${5:-dotfiles-agent:latest}"
+    "${profile[@]}" "${CREATE_EXTRA[@]}" "${5:-dotfiles-agent:latest}"
 }
 render() {
   local template index value
@@ -154,7 +162,7 @@ roundtrip() {
   absent "$CACHE"
   ok start "$TASK"
   expected_create
-  logged exec --tty "$SANDBOX" -- zsh -c 'cd /workspace && exec "$@"' code-agent opencode
+  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent opencode
   commit_work
   ok sync "$TASK"
   equal "$(git -C "$HOST" rev-parse "$BRANCH")" "$(git -C "$CLONE" rev-parse HEAD)"
@@ -474,7 +482,7 @@ readable_layout() {
   equal "$entries" "$(printf '%s\n' .code-agent "$repo_key-improve_api")"
   ok start "$TASK"
   expected_create
-  logged exec --tty "$SANDBOX" -- zsh -c 'cd /workspace && exec "$@"' code-agent opencode
+  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent opencode
   # Repository names are normalized for paths and sandbox names.
   new_repo "$CASE/odd/My.Repo Name!"
   setup 'Improve API'
@@ -485,13 +493,61 @@ readable_layout() {
 attach_command() {
   setup
   ok start "$TASK"
-  logged exec --tty "$SANDBOX" -- zsh -c 'cd /workspace && exec "$@"' code-agent opencode
+  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent opencode
   ok stop "$TASK"
   ok resume "$TASK" -- git status --short
-  logged exec --tty "$SANDBOX" -- zsh -c 'cd /workspace && exec "$@"' code-agent git status --short
+  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent git status --short
   reject 'Usage: code-agent start' start "$TASK" --
   reject 'Usage: code-agent resume' resume "$TASK" --
   reject 'Usage: code-agent stop' stop "$TASK" -- git status
+}
+
+agent_profile() {
+  setup
+  ok help start
+  contains "$OUTPUT" 'New sandboxes use agent profile code (skills in /home/adamr/.config/agent-profiles/code/skills).'
+  ok start "$TASK"
+  # expected_create checks the OPENCODE_CONFIG and AGENT_PROFILE environment.
+  expected_create
+  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent opencode
+  # The profile is fixed when the sandbox is created; resuming does not recreate it.
+  values[12]=other
+  render
+  ok stop "$TASK"
+  ok resume "$TASK"
+  equal "$(count_command create)" 1
+  # The guest wrapper refuses to attach when the image lacks the profile, and
+  # skips the check for sandboxes created without one.
+  local missing="$CASE/missing-profile/opencode.json" status=0
+  OUTPUT="$(OPENCODE_CONFIG="$missing" AGENT_PROFILE=code bash -c "$ATTACH_SCRIPT" code-agent true 2>&1)" || status=$?
+  equal "$status" 1
+  contains "$OUTPUT" "this sandbox image has no agent profile code ($missing). Rebuild the image with make.sh image --force"
+  mkdir -p "$CASE/guest/workspace"
+  OUTPUT="$(cd "$CASE/guest" && env -u OPENCODE_CONFIG bash -c "${ATTACH_SCRIPT//\/workspace/workspace}" code-agent printf attached)" ||
+    fail 'attach wrapper refused a sandbox without a profile'
+  equal "$OUTPUT" attached
+  mkdir -p "$CASE/profile"
+  : > "$CASE/profile/opencode.json"
+  OUTPUT="$(cd "$CASE/guest" && OPENCODE_CONFIG="$CASE/profile/opencode.json" bash -c "${ATTACH_SCRIPT//\/workspace/workspace}" code-agent pwd)" ||
+    fail 'attach wrapper refused an installed profile'
+  equal "$OUTPUT" "$CASE/guest/workspace"
+}
+
+no_agent_profile() {
+  values[12]=''
+  render
+  setup
+  ok help start
+  contains "$OUTPUT" 'New sandboxes use no agent profile.'
+  ok start "$TASK"
+  expected_create
+  [[ "$(< "$FAKE_MSB_LOG")" != *OPENCODE_CONFIG=* ]] || fail 'OPENCODE_CONFIG set without an agent profile'
+  [[ "$(< "$FAKE_MSB_LOG")" != *AGENT_PROFILE=* ]] || fail 'AGENT_PROFILE set without an agent profile'
+  # An invalid profile name is refused before any sandbox work.
+  values[12]='../code'
+  render
+  reject 'invalid agent profile' start other
+  equal "$(count_command create)" 1
 }
 
 task_name_clash() {
@@ -1559,12 +1615,12 @@ if [ "${1:-}" = --case ]; then
   export GIT_CONFIG_GLOBAL="$CASE/gitconfig"
   # Render the same shell-escaped settings that Home Manager bakes into the command.
   SCRIPT="$CASE/bin/code-agent"
-  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory rootDisk networkProfiles cacheDirectory copilotTokenFile opencodeConfig opencode)
+  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory rootDisk networkProfiles cacheDirectory copilotTokenFile opencodeConfig opencode agentProfile)
   values=("$CASE/workspaces" "$CASE/upstream" code-agent dotfiles-agent:latest 4 8G 12G "public,private" "$CASE/package-cache"
-    '' '{"autoupdate":false,"share":"disabled"}' "$CASE/bin/opencode")
+    '' '{"autoupdate":false,"share":"disabled"}' "$CASE/bin/opencode" code)
   if [ "$CASE_NAME" = configured_settings ]; then
     values=("$CASE/workspaces with ' quotes" "$CASE/upstream with spaces" custom-prefix custom-agent:configured 2 512M 16G public "$CASE/package cache with ' quotes"
-      '' '{"model":"github-copilot/example model","share":"disabled"}' "$CASE/bin/opencode")
+      '' '{"model":"github-copilot/example model","share":"disabled"}' "$CASE/bin/opencode" data_agent)
   fi
   CREATE_EXTRA=()
   CACHE="${values[8]}"
@@ -1604,7 +1660,7 @@ tests=(roundtrip reuse mount_isolation cache_sharing cache_reuse cache_lazy_crea
   cache_overlap_repo_equal cache_overlap_repo_descendant cache_overlap_repo_ancestor
   cache_overlap_workspace_equal cache_overlap_workspace_descendant cache_overlap_workspace_ancestor
   cache_overlap_upstream_equal cache_overlap_upstream_descendant cache_overlap_upstream_ancestor
-  repo_identity task_identity readable_layout attach_command task_name_clash long_task_names legacy_layout main_task rebased_source
+  repo_identity task_identity readable_layout attach_command agent_profile no_agent_profile task_name_clash long_task_names legacy_layout main_task rebased_source
   optional_task slash_branch main_prompt_setup main_prompt_start explicit_branch_setup explicit_branch_start
   missing_task dirty_handover staged_handover untracked_handover divergent_sync noncurrent_sync
   other_worktree_sync dirty_clone_sync repeated_sync

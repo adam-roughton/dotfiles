@@ -164,6 +164,61 @@ FHS dynamic loader. On start the server adds the microsandbox CA to
 (see TLS interception below). Pi has no MCP support and does not get the
 browser tools.
 
+### Agent Profiles and Skills
+
+Skills are installed per agent type ("profile") rather than for every agent.
+All profiles live in the one image, and the launcher chooses which one an agent
+uses when it creates the sandbox. `code-agent` uses the `code` profile
+(`dotfiles.agentSandbox.agentProfile`).
+
+Skills are plain [Agent Skills](https://agentskills.io/specification)
+directories in `skills/<name>/SKILL.md`. The frontmatter must have a `name`
+equal to the directory name and a `description` that says when to use the
+skill. The `agent-profiles` module declares which skills exist and which
+profiles get them, in `systems/agent-computer/home.nix`:
+
+```nix
+dotfiles.agentProfiles = {
+  skills = {
+    task-handover.source = ../../skills/task-handover;
+    # Tools the skill runs are installed whenever a profile uses it.
+    sql-review = { source = ../../skills/sql-review; packages = [ pkgs.sqlfluff ]; };
+    # Third-party skills: add the repository as a `flake = false` input,
+    # pass `inputs` to home.nix, and point at the skill's directory.
+    # pdf.source = "${inputs.example-skills}/skills/pdf";
+  };
+  baseSkills = [ ];                                  # added to every profile
+  profiles = {
+    code.skills = [ "task-handover" ];
+    data = {
+      skills = [ "sql-review" ];
+      opencodeSettings.permission.edit = "deny";     # any opencode config
+    };
+  };
+};
+```
+
+Each profile becomes a directory in the image:
+
+```text
+~/.config/agent-profiles/<profile>/
+  opencode.json      # skills.paths (+ opencodeSettings), selected with OPENCODE_CONFIG
+  skills/<skill>/    # the profile's skills, including baseSkills
+```
+
+Nothing goes in the directories that agents scan automatically
+(`~/.config/opencode/skills`, `~/.agents/skills`, `~/.claude/skills`), so a
+skill only reaches the profiles that list it. Pi does not read opencode config.
+Point it at a profile explicitly, for example
+`ca start -- pi --skill /home/adamr/.config/agent-profiles/code/skills`.
+
+Building the image fails if a profile names a skill that is not in `skills`,
+or if a `SKILL.md` has no frontmatter, a different `name`, or no
+`description`. Agents would otherwise skip such a skill silently. New skill
+files must be tracked by Git (`git add`) before the flake build can see them.
+Skills are part of the image, so after changing them rebuild with
+`./make.sh image --force` and recreate the sandboxes that should use them.
+
 ### Raspberry Pi Images
 
 The Raspberry Pi boots through the GPU firmware, then U-Boot, then extlinux,
@@ -248,7 +303,9 @@ help arguments, not task names.
 
 This entrypoint currently covers coding workflows only. Future `triage-agent`
 and `data-agent` commands can use the same subcommand/help pattern with their
-own workflows; neither is implemented or installed yet.
+own workflows and their own agent profile (see
+[Agent Profiles and Skills](#agent-profiles-and-skills)); neither is
+implemented or installed yet.
 
 The flags are valid only for `cleanup`. Run host commands from the original
 host Git checkout. Without a task name, the current branch identifies the task.
@@ -299,6 +356,7 @@ dotfiles.agentSandbox = {
   networkProfiles = [ "public" "private" ];
   copilotTokenFile = "${config.home.homeDirectory}/development/agent/credentials/github-copilot-token";
   opencodeConfig = { model = "github-copilot/claude-opus-5.5"; };
+  agentProfile = "code";
 };
 ```
 
@@ -318,6 +376,7 @@ All settings except `enabled` are optional and have these defaults:
 | `networkProfiles` | `[ "public" "private" ]` |
 | `copilotTokenFile` | `null` (no Copilot secret) |
 | `opencodeConfig` | `{ autoupdate = false; share = "disabled"; }`, merged with your settings |
+| `agentProfile` | `code` (`null` for no profile) |
 
 Activate your Home Manager configuration before building the image.
 `make.sh image` reads the configured tag from `code-agent --print-image`.
@@ -337,6 +396,18 @@ sandboxes, not existing ones.
 `opencodeConfig` is passed to new sandboxes as `OPENCODE_CONFIG_CONTENT`. It
 takes precedence over a repository's own opencode config. Set `model` there to
 pick a default model; otherwise choose one with `/models`.
+
+`agentProfile` selects the image's agent profile for new sandboxes by setting
+`OPENCODE_CONFIG=/home/adamr/.config/agent-profiles/<profile>/opencode.json`
+and `AGENT_PROFILE=<profile>`. Configuration is layered: the image's global
+opencode config, then the profile, then the repository's config, then
+`opencodeConfig`. opencode replaces arrays instead of appending to them, so
+setting `skills.paths` in `opencodeConfig` would hide the profile's skills, and
+Home Manager warns about it. The profile is fixed when the sandbox is created.
+opencode silently ignores a missing `OPENCODE_CONFIG`, so `code-agent` refuses
+to attach when the image lacks the profile. That happens with an image built
+before the profile existed: rebuild it and recreate the sandbox. Sandboxes
+created without a profile skip the check.
 
 ### GitHub Copilot Credentials
 

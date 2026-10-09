@@ -15,6 +15,13 @@ cache_directory=@cacheDirectory@
 copilot_token_file=@copilotTokenFile@
 opencode_config=@opencodeConfig@
 opencode=@opencode@
+agent_profile=@agentProfile@
+# Installed in the image by dotfiles.agentProfiles (modules/agent-profiles).
+agent_profile_directory=/home/adamr/.config/agent-profiles
+# Runs in the guest before every attach. opencode silently ignores a missing
+# OPENCODE_CONFIG, so refuse to start an agent without its profile's skills.
+# shellcheck disable=SC2016
+attach_script='if [ -n "${OPENCODE_CONFIG:-}" ] && [ ! -r "$OPENCODE_CONFIG" ]; then printf "%s\n" "code-agent: this sandbox image has no agent profile ${AGENT_PROFILE:-} ($OPENCODE_CONFIG). Rebuild the image with make.sh image --force (after cleaning up the sandboxes that use it), then start the task again." >&2; exit 1; fi; cd /workspace && exec "$@"'
 # The real token is only ever placed in msb's host environment. The guest sees
 # the placeholder, which microsandbox replaces in requests to this host.
 copilot_secret_env=CODE_AGENT_COPILOT_TOKEN
@@ -93,6 +100,13 @@ command_help() {
   esac
   if [ "$command" = start ] || [ "$command" = resume ]; then
     printf '%s\n' 'Run command COMMAND with its arguments in /workspace instead of the default opencode.'
+  fi
+  if [ "$command" = start ]; then
+    if [ -n "$agent_profile" ]; then
+      printf '%s\n' "New sandboxes use agent profile $agent_profile (skills in $agent_profile_directory/$agent_profile/skills)."
+    else
+      printf '%s\n' 'New sandboxes use no agent profile.'
+    fi
   fi
   case "$command" in
     setup|start|resume|sync)
@@ -285,6 +299,7 @@ bare_repo="$upstream_root/$repo_key.git"
 sandbox="$sandbox_prefix-$task_key"
 legacy_task_dir="$workspace_root/code-agent/repo-$repo_hash/${legacy_task_id:0:40}-$task_hash"
 [[ "$sandbox" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || die 'invalid sandbox prefix'
+[ -z "$agent_profile" ] || [[ "$agent_profile" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die 'invalid agent profile'
 [[ "$repo_root$workspace_root$upstream_root$cache_root" != *$'\n'* ]] || die 'paths containing newlines are unsupported'
 [[ "$clone$bare_repo$cache_root" != *:* ]] || die 'volume paths containing colons are unsupported'
 if [ -e "$legacy_task_dir" ] || [ -L "$legacy_task_dir" ]; then
@@ -482,6 +497,10 @@ case "$action" in
       die 'sandbox is absent; use code-agent start to recreate it'
     else
       create_options=()
+      if [ -n "$agent_profile" ]; then
+        create_options+=(--env "OPENCODE_CONFIG=$agent_profile_directory/$agent_profile/opencode.json"
+          --env "AGENT_PROFILE=$agent_profile")
+      fi
       copilot_sandbox=false
       if [ -n "$copilot_token_file" ]; then
         load_copilot_token
@@ -530,7 +549,7 @@ case "$action" in
     printf '%s\n' 'Entering the repository. Commit before sync. Exiting leaves the sandbox running.'
     rmdir -- "$task_lock"
     locked=false
-    msb exec --tty "$sandbox" -- zsh -c 'cd /workspace && exec "$@"' code-agent "${attach_command[@]}"
+    msb exec --tty "$sandbox" -- zsh -c "$attach_script" code-agent "${attach_command[@]}"
     ;;
   stop)
     if sandbox_exists; then stop_sandbox; fi

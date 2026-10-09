@@ -49,6 +49,7 @@ let
   };
 in {
   imports = [
+    ../../modules/agent-profiles
     ../../modules/shell
     ../../modules/vim
   ];
@@ -83,8 +84,8 @@ in {
     package = jdk;
   };
 
-  # Writes ~/.config/opencode/opencode.json. code-agent's OPENCODE_CONFIG_CONTENT
-  # is merged on top of it.
+  # Writes ~/.config/opencode/opencode.json. The selected agent profile
+  # (OPENCODE_CONFIG) and code-agent's OPENCODE_CONFIG_CONTENT are merged on top.
   programs.opencode = {
     enable = true;
     settings = {
@@ -102,6 +103,19 @@ in {
           "/tmp/playwright-mcp"
         ];
       };
+    };
+  };
+
+  # Skills per agent type. Every profile is in the image; the launcher picks one
+  # (code-agent: dotfiles.agentSandbox.agentProfile). See modules/agent-profiles.
+  dotfiles.agentProfiles = {
+    skills = {
+      task-handover.source = ../../skills/task-handover;
+    };
+    # Skills every agent type gets.
+    baseSkills = [ ];
+    profiles = {
+      code.skills = [ "task-handover" ];
     };
   };
 
