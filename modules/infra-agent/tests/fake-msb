@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Fake msb for infra-agent tests. Records every invocation; `run -d` serves
+# /healthz on the published host port like the broker gateway would.
+set -euo pipefail
+
+: "${FAKE_MSB_STATE:?}" "${FAKE_MSB_LOG:?}"
+printf '%q ' "$@" >> "$FAKE_MSB_LOG"
+printf '\n' >> "$FAKE_MSB_LOG"
+# Record secrets received through the environment (never through arguments).
+for variable in CODE_AGENT_COPILOT_TOKEN INFRA_DD_API_KEY INFRA_DD_APP_KEY; do
+  if [ -n "${!variable:-}" ]; then printf '%s %s=%s\n' "$1" "$variable" "${!variable}" >> "$FAKE_MSB_LOG.env"; fi
+done
+command="${1:?}"
+shift
+if [ "${FAKE_MSB_FAIL:-}" = "$command" ]; then
+  printf 'injected msb %s failure\n' "$command" >&2
+  exit 42
+fi
+mkdir -p "$FAKE_MSB_STATE"
+pids="$FAKE_MSB_STATE.pids"
+mkdir -p "$pids"
+
+stop_server() {
+  if [ -f "$pids/$1" ]; then kill "$(< "$pids/$1")" 2>/dev/null || true; rm -f "$pids/$1"; fi
+}
+
+case "$command" in
+  ls)
+    [ "$#" = 0 ] || [ "$*" = -q ] || exit 2
+    for entry in "$FAKE_MSB_STATE"/*; do
+      [ -f "$entry" ] || continue
+      printf '%s\n' "${entry##*/}"
+    done
+    ;;
+  create)
+    [ "${1:-}" = --name ] || exit 2
+    [ ! -e "$FAKE_MSB_STATE/$2" ] || exit 3
+    printf 'Running\n' > "$FAKE_MSB_STATE/$2"
+    ;;
+  run)
+    [ "${1:-}" = -d ] && [ "${2:-}" = --name ] || exit 2
+    name="$3"
+    [ ! -e "$FAKE_MSB_STATE/$name" ] || exit 3
+    port=''
+    previous=''
+    for argument in "$@"; do
+      if [ "$previous" = -p ]; then port="$(cut -d : -f 2 <<< "$argument")"; fi
+      previous="$argument"
+    done
+    [ -n "$port" ] || exit 2
+    printf 'Running\n' > "$FAKE_MSB_STATE/$name"
+    if [ "${FAKE_BROKER_UNHEALTHY:-}" != 1 ]; then
+      nohup python3 -c '
+import http.server, sys
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200 if self.path == "/healthz" else 404)
+        self.end_headers()
+        self.wfile.write(b"{\"ok\": true}")
+    def log_message(self, *a):
+        pass
+http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), H).serve_forever()
+' "$port" > /dev/null 2>&1 &
+      printf '%s\n' "$!" > "$pids/$name"
+      for _ in $(seq 50); do
+        if python3 -c 'import socket,sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), 1)' "$port" 2>/dev/null; then break; fi
+        sleep 0.1
+      done
+    fi
+    printf '%s\n' "$name"
+    ;;
+  inspect)
+    [ "$#" = 3 ] && [ "$2" = --format ] && [ "$3" = json ] || exit 2
+    [ -f "$FAKE_MSB_STATE/$1" ] || exit 3
+    printf '{"name":"%s","status":"%s"}\n' "$1" "$(< "$FAKE_MSB_STATE/$1")"
+    ;;
+  start|resume|stop)
+    [ "$#" = 1 ] && [ -f "$FAKE_MSB_STATE/$1" ] || exit 3
+    status="$(< "$FAKE_MSB_STATE/$1")"
+    case "$command:$status" in
+      start:Created|start:Stopped|start:Crashed|resume:Paused) printf 'Running\n' > "$FAKE_MSB_STATE/$1" ;;
+      stop:Running|stop:Stopped|stop:Created|stop:Crashed) printf 'Stopped\n' > "$FAKE_MSB_STATE/$1"; stop_server "$1" ;;
+      *) printf 'invalid msb transition: %s from %s\n' "$command" "$status" >&2; exit 3 ;;
+    esac
+    ;;
+  rm)
+    [ "${1:-}" = --force ] && [ "$#" = 2 ] || exit 2
+    [ -f "$FAKE_MSB_STATE/$2" ] || exit 3
+    stop_server "$2"
+    rm -- "$FAKE_MSB_STATE/$2"
+    ;;
+  exec)
+    if [ "${1:-}" = --tty ]; then shift; fi
+    [ -f "$FAKE_MSB_STATE/${1:-}" ] || exit 3
+    [ "$(< "$FAKE_MSB_STATE/$1")" = Running ] || exit 3
+    ;;
+  logs) [ -f "$FAKE_MSB_STATE/${1:-}" ] || exit 3; printf 'fake broker log\n' ;;
+  *) printf 'unsupported fake msb command: %s\n' "$command" >&2; exit 2 ;;
+esac

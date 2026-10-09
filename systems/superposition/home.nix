@@ -9,6 +9,7 @@ in rec{
     ../../modules/dev.nix
     ../../modules/vscode
     ../../modules/agent-sandbox
+    ../../modules/infra-agent
   ] ++ lib.optional (builtins.pathExists ../../private/systems/superposition/home.nix)
     ../../private/systems/superposition/home.nix;
 

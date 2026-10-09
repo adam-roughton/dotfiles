@@ -88,6 +88,7 @@ in {
 
     programs.bash.enable = true;
     programs.bash.shellAliases.ca = "code-agent";
+    programs.bash.shellAliases.ia = "infra-agent";
     programs.zsh = {
       enable = true;
       enableCompletion = true;
@@ -103,6 +104,7 @@ in {
       };
       shellAliases = {
         "ca" = "code-agent";
+        "ia" = "infra-agent";
         "ls" = "eza";
         ".." = "cd ..";
         "..." = "cd ../..";

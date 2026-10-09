@@ -112,8 +112,9 @@ configuration.
 Build an OCI image for agent sandboxes. The image uses the same zsh, git and
 vim configuration as the workstations (Home Manager dotfiles are installed for
 the `adamr` user in `/home/adamr`). It includes the core shell tools; the C, Python, Node.js, Rust and JVM
-toolchains; database clients; and the AWS, Azure and Kubernetes CLIs. Its
-package set is defined in `systems/agent-computer/home.nix`. Workstation-only
+toolchains; database clients; and the Azure CLI. There are no AWS or Kubernetes
+CLIs: infrastructure access goes through the [Infra Agent](#infra-agent)
+broker. Its package set is defined in `systems/agent-computer/home.nix`. Workstation-only
 tools are left out (`dotfiles.shell.workstation = false`), as are host
 credentials such as the GPG signing key. The image is built for the current host
 system and is suitable for loading into microsandbox:
@@ -141,6 +142,11 @@ Docker volume `dotfiles-agent-image-nix-<system>` so rebuilds are incremental.
 After each build the current image (and its build inputs) is kept as a GC root
 and everything else in that store is garbage-collected. Remove the volume with
 `docker volume rm` to reclaim all of it.
+
+`./make.sh image broker [--force]` builds and loads the infra-agent broker
+image (`dotfiles-infra-broker:latest`, see [Infra Agent](#infra-agent)) the
+same way; `./make.sh image` is short for `./make.sh image agent`. Both images
+share the builder volume, with one GC root each.
 
 The image supports `aarch64-linux` and `x86_64-linux`. To build a specific
 system directly on a Linux host (or a host with a Linux builder configured):
@@ -301,11 +307,10 @@ running sandbox, and does not create branches or change task state. Invalid
 commands or options exit with status 2. `help`, `--help`, and `-h` are reserved
 help arguments, not task names.
 
-This entrypoint currently covers coding workflows only. Future `triage-agent`
-and `data-agent` commands can use the same subcommand/help pattern with their
-own workflows and their own agent profile (see
-[Agent Profiles and Skills](#agent-profiles-and-skills)); neither is
-implemented or installed yet.
+This entrypoint covers coding workflows only. Production triage uses
+[`infra-agent`](#infra-agent), which follows the same subcommand/help pattern
+with its own agent profile (see
+[Agent Profiles and Skills](#agent-profiles-and-skills)).
 
 The flags are valid only for `cleanup`. Run host commands from the original
 host Git checkout. Without a task name, the current branch identifies the task.
@@ -715,6 +720,279 @@ Run the lifecycle test suite from this repository:
 bash modules/agent-sandbox/tests/lifecycle.sh
 ```
 
+## Infra Agent
+
+`infra-agent` (alias `ia`) runs opencode for production triage, with customer
+data in scope, without giving the agent credentials or network access to
+infrastructure. It is installed by the `infra-agent` module
+(`dotfiles.infraAgent`) and uses three pieces:
+
+```text
+host
+├─ infra-agent CLI          lifecycle, SSO preflight, audit log
+├─ infra-credd              mints short-lived credentials from your host sessions (aws, az, pass)
+│     Unix socket ──vsock──┐
+├─ VM infra-broker-<env>    MCP gateway + read-only MCP servers (one per environment)
+│     egress: only the declared API hostnames, cluster and database CIDR:port pairs
+│     gateway published on 127.0.0.1:<port>
+│        ▲ http://host.microsandbox.internal:<port>/mcp, one bearer token per incident
+└─ VM infra-agent-<incident> opencode with the `infra` profile (dotfiles-agent image)
+      egress: only api.githubcopilot.com:443 and the broker port; no DNS for anything else
+```
+
+- The VM that reads production data (logs, rows, events — all of which can
+  contain prompt injections) has no credentials and no route to infrastructure.
+  Its only capability is the broker's read-only, audited tools.
+- The VM that holds credentials runs only pinned code from this repository and
+  nixpkgs, never the agent's commands, and can reach only the declared
+  endpoints. It has no route to the model API or the internet at large.
+- Credentials are short-lived, minted from your own SSO sessions on the host, and
+  dropped with `ia revoke`.
+
+### Setup
+
+Configure environments in Home Manager, typically in the `private` submodule
+for company details. Every network rule is derived from what you declare here:
+
+```nix
+dotfiles.infraAgent = {
+  enabled = true;
+  # copilotTokenFile and the model default to the code-agent settings.
+  environments.prod = {
+    description = "production";
+    vpns = {
+      tailscale.check = "tailscale status --peers=false >/dev/null";
+      fortinet.check = "ifconfig | grep -q ppp0";     # whatever proves the tunnel is up
+    };
+    # Optional split DNS for private names (see Network Policy).
+    dnsForwarders."privatelink.westeurope.azmk8s.io" = "10.40.0.4";
+    aws.accounts.prod = {
+      sourceProfile = "sso-prod";                       # host AWS CLI profile (IAM Identity Center)
+      roleArn = "arn:aws:iam::111111111111:role/infra-agent-readonly";   # optional, see Credentials
+      regions = [ "eu-west-1" ];
+    };
+    azure = { tenantId = "…"; subscriptions = [ "…" ]; };
+    kubernetes.payments = {
+      provider = "eks";                                 # eks | aks | command
+      server = "https://ABC123.gr7.eu-west-1.eks.amazonaws.com";
+      certificateAuthorityData = "LS0t…";
+      cidrs = [ "10.20.0.0/16" ];                       # where the API server resolves
+      via = "tailscale";
+    };
+    databases.orders = {
+      engine = "postgres";                              # postgres | mysql | mariadb | sqlserver
+      host = "orders-replica.cluster-ro-abc.eu-west-1.rds.amazonaws.com";
+      port = 5432; database = "orders"; user = "infra_agent_ro";
+      auth = "rds-iam";                                 # or password (+ passwordCommand), entra (sqlserver)
+      cidrs = [ "10.20.64.0/20" ];
+      via = "tailscale";
+    };
+    datadog = {
+      site = "datadoghq.eu";
+      apiKeyCommand = "pass show datadog/api-key";
+      appKeyCommand = "pass show datadog/app-key-readonly";
+    };
+  };
+};
+```
+
+`modules/infra-agent/tests/example.nix` is a complete example (built as
+`packages.<system>.infra-agent-example`), and every option is documented in
+`modules/infra-agent/default.nix`. Then:
+
+```sh
+./make.sh image --force      # the agent image now has the infra profile and skills
+./make.sh image broker
+code-agent login             # once; the Copilot token is shared with code-agent
+```
+
+The host needs the `aws` and `az` CLIs (from `modules/shell` and
+`modules/dev.nix`) and whatever your password commands use.
+
+### Usage
+
+```text
+infra-agent start INCIDENT [--env ENV] [--skip-preflight] [-- COMMAND...]
+infra-agent resume|stop|status INCIDENT
+infra-agent cleanup INCIDENT [--keep-workspace] [--dry-run]
+infra-agent broker up|down|status|doctor|logs [--env ENV]
+infra-agent creds [--env ENV]
+infra-agent audit [INCIDENT] [--env ENV] [--follow]
+infra-agent revoke [--env ENV]
+```
+
+`ia start INC-1234` does everything needed: when the environment's broker is
+not running (or its configuration changed) it runs preflight checks, starts
+infra-credd, (re)creates the broker and waits for it to be healthy; then it
+issues the incident's token, creates or starts the incident VM and attaches
+opencode in `/workspace`. Later incidents reuse the running broker, so they
+start in seconds. Preflight checks each AWS profile and the Azure tenant
+(running `aws sso login` / `az login` interactively when a session has
+expired), each VPN's check command, and TCP reachability of every private
+target, and reports what is down without stopping.
+
+In opencode the tools are named `infra_<source>_<tool>`, for example
+`infra_k8s_pods_log`, `infra_aws_logs_insights`,
+`infra_datadog_search_datadog_logs` and `infra_db_execute_sql_orders`. The
+`infra-triage` and `incident-report` skills guide the investigation and the
+report in `/workspace/report.md`.
+
+`ia cleanup` removes the VM (including opencode's session history, which holds
+query results), revokes the incident token and deletes the workspace; use
+`--keep-workspace` to keep the report. Incident workspaces contain customer
+data: keep `stateDirectory` (default `~/development/agent/infra`) on an
+encrypted disk and out of synced or backed-up folders.
+
+### MCP Servers
+
+Each environment's broker runs only the servers its configuration needs, behind
+`infra-broker-gateway` (`packages/infra-broker`), which authenticates incident
+tokens, allows only listed tools (new tools from upgraded servers stay hidden),
+caps result sizes and audits every call.
+
+| Source | Server | Read-only enforcement (besides IAM/RBAC) |
+| --- | --- | --- |
+| `k8s` | [kubernetes-mcp-server](https://github.com/containers/kubernetes-mcp-server) 0.0.67 | `read_only`, core toolset, Secrets denied, `configuration_view` (returns kubeconfig credentials) disabled |
+| `aws` | `infra-aws-mcp` (this repository) | Describe/List/Get-style operations only, a denylist of reads that return secrets or signed URLs, environment values redacted |
+| `azure` | [Azure MCP Server](https://github.com/microsoft/mcp) 3.0.0-beta.33 | `--read-only`, only the configured namespaces (default monitor, resourcehealth, aks, group, subscription; no keyvault/appservice, whose read tools return secrets) |
+| `db` | [DBHub](https://github.com/bytebase/dbhub) 1.4.0 | `readonly` execute_sql (keyword checks plus read-only transactions), row limits, query timeouts |
+| `datadog` | [Datadog MCP](https://docs.datadoghq.com/mcp_server/) (remote) | notebook write tools omitted; use a read-only application key |
+
+The awslabs AWS servers are not used: their current releases pin `awscli` and
+`mcp` versions that conflict with nixpkgs, and their read-only mode still
+allows `secretsmanager:GetSecretValue`. Datadog's server is remote, so the
+gateway proxies it. `extraServers` adds further upstreams (stdio command or
+URL) with their own `allowTools`; their hosts need `extraAllowedHosts`.
+
+The real read-only boundary is always the identity: IAM role or permission set,
+Kubernetes RBAC (`view` excludes Secrets), Azure Reader roles, a read-only
+database user on a replica, and a read-only Datadog key. The MCP checks are
+defence in depth.
+
+### Credentials
+
+Nothing secret is stored in an image, a Nix store path or the agent VM.
+
+| Credential | How the broker gets it | Lifetime |
+| --- | --- | --- |
+| AWS | infra-credd serves the container-credentials protocol (`AWS_CONTAINER_CREDENTIALS_FULL_URI`); SDKs refresh on their own. Per-account profiles (`credential_process`) for DBHub. | ≤ 1 hour |
+| Azure | infra-credd emulates the App Service managed-identity endpoint, only for the audiences in `tokenResources` | about 1 hour |
+| Kubernetes | kubeconfig exec plugin → infra-credd runs `aws eks get-token` (as the agent's AWS identity) or mints an AKS Entra token | 15–60 minutes |
+| Database passwords | `passwordCommand` runs on the host when the broker starts DBHub; `rds-iam` signs tokens in DBHub | per connection |
+| Datadog keys | microsandbox secrets: the broker only has `$MSB_…` placeholders, replaced in requests to `mcp.<site>` | until rotated |
+| Incident token | random per incident; read from a read-only mount at every attach | until cleanup or revoke |
+| Copilot | the code-agent secret | — |
+
+infra-credd caches each credential until five minutes before it expires, logs
+every mint to the audit log, refuses Azure audiences outside the allowlist, and
+listens on a socket in a 0700 directory that only the broker can reach (as a
+vsock route). It never runs `aws sso login` or `az login` itself; preflight
+does that in your terminal.
+
+Getting started with your own identity:
+
+- **AWS:** with only `sourceProfile`, the broker uses that SSO session's
+  credentials (`aws configure export-credentials`), so use a read-only
+  permission set. With `roleArn`, infra-credd assumes the role with a session
+  policy (default: deny secret reads and remote execution), a one-hour session
+  and `SourceIdentity = infra-agent`, so CloudTrail separates the agent's calls
+  from yours.
+- **Azure:** tokens come from `az account get-access-token`, so they carry your
+  roles. Activate only Reader roles (for example through PIM) before
+  triaging; the gateway allowlist is the only write barrier until a dedicated
+  identity exists.
+- **Kubernetes, databases, Datadog:** as above, use read-only identities and keys.
+
+Moving to dedicated identities: an `infra-agent-readonly` IAM role per account
+(ViewOnlyAccess plus CloudWatch Logs reads and explicit denies, trusted by your
+SSO role, requiring a SourceIdentity), mapped to the `view` ClusterRole with an
+EKS access entry; an Entra service principal or group with Reader, Log
+Analytics Reader and AKS RBAC Reader (a principal's certificate stays on the
+host and is used only by infra-credd); `infra_agent_ro` database users on
+replicas; a Datadog service account with a read-only role. Only
+`dotfiles.infraAgent` changes.
+
+### Network Policy
+
+Both VMs are created with `--net-default-egress deny`:
+
+- **Agent:** `allow@<llmHost>:tcp:443` for each `llmHosts` entry and
+  `allow@host.microsandbox.internal:tcp:<port>`, `allow@host:tcp:<port>` for
+  its broker. There is no general DNS rule, so names other than these do not
+  resolve (no DNS tunnelling).
+- **Broker:** generated from the configuration (`netRules` in the generated
+  `infra-agent.json`):
+  - public APIs by hostname on 443: `<service>.<region>.amazonaws.com` for the
+    configured services and regions (never `*.amazonaws.com`, which includes
+    S3 buckets), `management.azure.com`, `api.loganalytics.io`,
+    `mcp.<datadog site>`, plus `extraHosts`/`extraAllowedHosts`;
+  - private targets by CIDR and port only, plus their hostname so they resolve
+    (microsandbox rejects private DNS answers outside the allowed CIDRs).
+
+Hostname rules need inspectable HTTPS, so both VMs use TLS interception.
+Kubernetes API hostnames bypass it, because their kubeconfig pins the cluster
+CA; give clusters a hostname, not an IP. If the Fortinet tunnel re-signs public
+HTTPS with a corporate CA, add it to `tlsUpstreamCaCerts`.
+
+The broker's traffic leaves through the host's network stack, so it goes
+through Tailscale and FortiClient exactly like yours and Tailscale sees it as
+your device. That is why rules are per target CIDR:port and never whole
+tailnet or VPN ranges. If private names do not resolve from the broker (for
+example macOS per-domain resolvers set up by Tailscale or FortiClient), set
+`dnsForwarders`: infra-agent then runs dnsmasq on host loopback (port + 1) that
+forwards those domains to the given resolvers, and the broker uses it.
+
+### Audit Log and State
+
+```text
+<stateDirectory>/
+  incidents/<incident>/                 /workspace of the incident VM (customer data)
+  .infra-agent/                         0700, never mounted as a whole
+    incidents/<incident>.json           environment and sandbox
+    incidents/<incident>.run/mcp-token  mounted read-only at /run/infra-agent
+    brokers/<env>/run/                  mounted read-only at /run/infra in the broker
+      credd-token, tokens/<incident>
+    brokers/<env>/credd.sock|.log, dnsmasq.log, broker.hash
+    audit/<env>.jsonl
+```
+
+The audit log has one JSON line per tool call (incident, tool, arguments)
+written before the call runs (calls fail if it cannot be written), one per
+result (size, SHA-256, duration, error) and one per credential mint, token
+issue, revoke and cleanup. Results themselves are not logged. `ia audit INC-1234
+--follow` filters by incident.
+
+### First Run
+
+Some microsandbox behaviour this relies on could not be exercised outside a
+real host. On the first start check, in this order:
+
+1. `ia broker doctor` — credd reachable over vsock, credentials minted for each
+   AWS account, Azure and cluster, and TCP reachability of every target from
+   inside the broker (DNS through `dnsForwarders` if set).
+2. `ia start test` — the agent reaches `host.microsandbox.internal:<port>`
+   without a DNS rule, and `opencode mcp list` in the VM shows `infra`
+   connected. `msb logs <sandbox> --source system` lists denied destinations;
+   opencode should only need the Copilot host (models.dev and LSP downloads are
+   disabled).
+3. File ownership in the read-only mounts (`/run/infra`, `/run/infra-agent`):
+   both use `uid=1000,gid=1000` so the guest users can read the 0600 tokens.
+
+### Tests
+
+```sh
+bash modules/infra-agent/tests/lifecycle.sh           # CLI with a fake msb and the real infra-credd
+python3 -m unittest discover -s modules/infra-agent/tests -p 'test_*.py'   # infra-credd
+nix build .#packages.aarch64-linux.infra-broker       # gateway, AWS server and helpers (runs their tests)
+nix build .#packages.aarch64-linux.infra-agent-example
+```
+
+The lifecycle tests check the security properties of the generated `msb`
+commands: the agent VM gets no vsock route, credentials, broker mounts or
+infrastructure rules; the broker gets no model API access; secrets reach `msb`
+only through its environment; tokens and sockets are private; and revoke
+rotates every token.
+
 ## Direct Flake Commands
 
 The wrapper covers the common system operations. Other outputs can be used
@@ -725,6 +1003,8 @@ nix flake show --all-systems
 nix build .#nixosConfigurations.skyhook.config.system.build.toplevel
 nix build .#nixosConfigurations.rpi3.config.system.build.sdImage
 nix build .#packages.aarch64-linux.agent-image  # image stream script
+nix build .#packages.aarch64-linux.infra-broker-image
+nix build .#packages.aarch64-linux.infra-agent-example  # infra-agent with an example configuration
 home-manager switch --flake .#adamr@skyhook-ho
 darwin-rebuild switch --flake .#superposition
 ```

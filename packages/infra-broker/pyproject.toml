@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "infra-broker"
+version = "0.1.0"
+description = "Read-only MCP gateway and helpers for the infra-agent broker VM"
+requires-python = ">=3.12"
+dependencies = ["fastmcp>=3.4,<4", "boto3", "httpx"]
+
+[project.scripts]
+infra-broker-gateway = "infra_broker.gateway:main"
+infra-broker-credential = "infra_broker.credential:main"
+infra-aws-mcp = "infra_broker.aws_server:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

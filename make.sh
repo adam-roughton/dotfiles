@@ -8,6 +8,7 @@ DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
 usage() {
   echo "usage: $0 {build|image|vm|disk-image|firmware|switch|update|clean} [SYSTEM] [OPTIONS...]" >&2
+  echo "       $0 image [agent|broker] [--force] [NIX OPTIONS...]" >&2
   exit 1
 }
 
@@ -102,9 +103,9 @@ fi
 # The bind-mounted repository is owned by the host user, not container root.
 printf "[safe]\n\tdirectory = *\n" > "${HOME:-/root}/.gitconfig"
 # Unprivileged containers cannot create the Nix build sandbox. keep-outputs and
-# keep-derivations make the GC root below also retain the build-time inputs of
-# the current image, so rebuilds stay incremental while store paths from older
-# builds are collected.
+# keep-derivations make the GC roots below (one per image) also retain the
+# build-time inputs of each image, so rebuilds stay incremental while store
+# paths from older builds are collected.
 export NIX_CONFIG="extra-experimental-features = nix-command flakes
 sandbox = false
 keep-outputs = true
@@ -116,20 +117,21 @@ keep-derivations = true"
 # GitHub credentials. Asking for submodules up front reads them from the
 # checked-out working tree under /src instead.
 out="$(nix build --print-out-paths \
-  --out-link /nix/var/nix/gcroots/dotfiles-agent-image \
+  --out-link "/nix/var/nix/gcroots/dotfiles-${attr##*.}" \
   "git+file:///src?submodules=1#$attr" "$@")"
 "$out"
 nix-collect-garbage >&2 || echo "warning: garbage collection of the builder store failed" >&2
 '
 
-# The agent image contains derivations that can only be built on Linux (and
-# Nix cannot run Linux builds on a macOS host), so on macOS the build runs
-# inside a Linux container. The container's /nix lives in a named Docker volume
-# so later builds reuse it. Writes the image tarball to $2.
-build_agent_image_in_container() {
+# The images contain derivations that can only be built on Linux (and Nix
+# cannot run Linux builds on a macOS host), so on macOS the build runs inside a
+# Linux container. The container's /nix lives in a named Docker volume so later
+# builds reuse it. Writes the image tarball to $3.
+build_image_in_container() {
   local image_system="$1"
-  local output="$2"
-  shift 2
+  local image_attr="$2"
+  local output="$3"
+  shift 3
 
   local platform
   case "$image_system" in
@@ -163,13 +165,13 @@ build_agent_image_in_container() {
     esac
   done < <(git -C "$DOTFILES_DIR" submodule status)
 
-  echo "Building $image_system agent image in a $NIX_BUILDER_IMAGE container..." >&2
+  echo "Building $image_system $image_attr in a $NIX_BUILDER_IMAGE container..." >&2
   docker run --rm --init --platform "$platform" \
     --volume "dotfiles-agent-image-nix-$image_system:/nix" \
     --mount "type=bind,source=$DOTFILES_DIR,target=/src,readonly" \
     "$NIX_BUILDER_IMAGE" \
     sh -c "$CONTAINER_BUILD_SCRIPT" sh \
-    "$DOTFILES_DIR" "packages.$image_system.agent-image" "$@" > "$output"
+    "$DOTFILES_DIR" "packages.$image_system.$image_attr" "$@" > "$output"
 
   [ -s "$output" ] || {
     echo "container build produced no image" >&2
@@ -187,11 +189,33 @@ case "$mode" in
       force=true
       shift
     fi
-    command -v code-agent >/dev/null 2>&1 || {
-      echo "code-agent is not installed; activate the agent-sandbox Home Manager module first" >&2
-      exit 1
-    }
-    image_tag="$(code-agent --print-image)"
+    # agent: the code-agent/infra-agent image. broker: the infra-agent broker.
+    image_kind=agent
+    case "${1:-}" in
+      agent|broker)
+        image_kind="$1"
+        shift
+        ;;
+    esac
+    if [ "${1:-}" = "--force" ]; then
+      force=true
+      shift
+    fi
+    if [ "$image_kind" = broker ]; then
+      image_attr=infra-broker-image
+      command -v infra-agent >/dev/null 2>&1 || {
+        echo "infra-agent is not installed; enable dotfiles.infraAgent in Home Manager first" >&2
+        exit 1
+      }
+      image_tag="$(infra-agent --print-broker-image)"
+    else
+      image_attr=agent-image
+      command -v code-agent >/dev/null 2>&1 || {
+        echo "code-agent is not installed; activate the agent-sandbox Home Manager module first" >&2
+        exit 1
+      }
+      image_tag="$(code-agent --print-image)"
+    fi
     command -v msb >/dev/null 2>&1 || {
       echo "microsandbox CLI (msb) is not installed or is not on PATH" >&2
       exit 1
@@ -206,7 +230,7 @@ case "$mode" in
     done <<< "$image_list"
     if [ "$image_exists" = true ] && [ "$force" = false ]; then
       echo "Microsandbox image already registered: $image_tag" >&2
-      echo "Use '$0 image --force' to rebuild and replace it." >&2
+      echo "Use '$0 image $image_kind --force' to rebuild and replace it." >&2
       exit 0
     fi
     if [ "$image_exists" = true ]; then
@@ -225,16 +249,17 @@ case "$mode" in
         while IFS= read -r sandbox_name; do
           echo "  $sandbox_name" >&2
         done <<< "$image_users"
-        echo "Remove them first with 'code-agent cleanup' (or 'msb rm --force <name>'), then retry." >&2
+        echo "Remove them first with 'code-agent cleanup', 'infra-agent cleanup' / 'infra-agent broker down'" >&2
+        echo "(or 'msb rm --force <name>'), then retry." >&2
         exit 1
       fi
     fi
     image_system="$(agent_system)"
     build_dir="$(mktemp -d)"
     trap 'rm -rf "$build_dir"' EXIT
-    image_path="$build_dir/agent-image.tar"
+    image_path="$build_dir/$image_attr.tar"
     if [ "$(uname -s)" = "Darwin" ]; then
-      build_agent_image_in_container "$image_system" "$image_path" "$@"
+      build_image_in_container "$image_system" "$image_attr" "$image_path" "$@"
     else
       # The flake attribute already selects the target system; the host
       # architecture matches it, so no --system override is needed. Enable
@@ -242,7 +267,7 @@ case "$mode" in
       # The output is a script that streams the image tarball.
       image_stream="$(nix --extra-experimental-features "nix-command flakes" \
         build --no-link --print-out-paths \
-        "$DOTFILES_DIR#packages.$image_system.agent-image" "$@")"
+        "$DOTFILES_DIR#packages.$image_system.$image_attr" "$@")"
       "$image_stream" > "$image_path"
     fi
     if [ "$image_exists" = true ]; then

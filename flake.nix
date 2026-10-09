@@ -57,8 +57,19 @@
 
     homeConfigurations."adamr@skyhook-ho" = import ./systems/skyhook-ho { inherit inputs; };
 
-    packages = nixpkgs.lib.genAttrs [ "aarch64-linux" "x86_64-linux" ] (system: {
-      agent-image = import ./systems/agent-computer { inherit inputs system; };
-    });
+    packages = nixpkgs.lib.genAttrs [ "aarch64-linux" "x86_64-linux" ] (system:
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+      in {
+        agent-image = import ./systems/agent-computer { inherit inputs system; };
+        # infra-agent broker VM image and the packages it contains.
+        infra-broker-image = import ./systems/infra-broker { inherit inputs system; };
+        infra-broker = pkgs.callPackage ./packages/infra-broker { };
+        dbhub = pkgs.callPackage ./packages/dbhub { };
+        kubernetes-mcp-server = pkgs.callPackage ./packages/kubernetes-mcp-server { };
+        azure-mcp = pkgs.callPackage ./packages/azure-mcp { };
+        # infra-agent built from an example configuration (a check and a reference).
+        infra-agent-example = import ./modules/infra-agent/tests/example.nix { inherit inputs system; };
+      });
   };
 }

@@ -11,6 +11,7 @@
     ../../modules/dev.nix
     ../../modules/vscode
     ../../modules/agent-sandbox
+    ../../modules/infra-agent
   ];
 
   dotfiles.agentSandbox = {
