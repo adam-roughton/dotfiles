@@ -16,6 +16,9 @@
   dotfiles.agentSandbox = {
     enabled = true;
     copilotTokenFile = "${config.home.homeDirectory}/development/agent/credentials/github-copilot-token";
+    # Docker's bridge and default pools (system.nix) lie outside RFC 1918, so
+    # microsandbox would treat them as public addresses.
+    deniedNetworks = [ "172.120.0.0/16" "172.121.0.0/16" ];
   };
 
   home.packages = with pkgs; [

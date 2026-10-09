@@ -81,6 +81,8 @@ in
     enable = true;
     liveRestore = false;
     autoPrune.enable = true;
+    # Agent sandboxes deny these ranges (dotfiles.agentSandbox.deniedNetworks in
+    # home.nix); update both together.
     extraOptions = ''
       --default-address-pool="base=172.121.0.0/16,size=24"
       --bip 172.120.64.0/24

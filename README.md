@@ -353,7 +353,9 @@ dotfiles.agentSandbox = {
   cpus = 4;
   memory = "8G";
   rootDisk = "12G";
-  networkProfiles = [ "public" "private" ];
+  networkProfiles = [ "public" ];
+  deniedNetworks = [ "172.120.0.0/16" ];
+  allowedNetworks = [ ];
   copilotTokenFile = "${config.home.homeDirectory}/development/agent/credentials/github-copilot-token";
   opencodeConfig = { model = "github-copilot/claude-opus-5.5"; };
   agentProfile = "code";
@@ -373,7 +375,9 @@ All settings except `enabled` are optional and have these defaults:
 | `cpus` | `4` |
 | `memory` | `8G` |
 | `rootDisk` | `12G` |
-| `networkProfiles` | `[ "public" "private" ]` |
+| `networkProfiles` | `[ "public" ]` |
+| `deniedNetworks` | `[ ]` |
+| `allowedNetworks` | `[ ]` |
 | `copilotTokenFile` | `null` (no Copilot secret) |
 | `opencodeConfig` | `{ autoupdate = false; share = "disabled"; }`, merged with your settings |
 | `agentProfile` | `code` (`null` for no profile) |
@@ -384,10 +388,19 @@ Settings are baked into the installed command; environment variables do not
 override them. Paths must be absolute, CPUs must be positive, and memory and
 root-disk sizes use microsandbox syntax such as `8G` or `512M`.
 
-`networkProfiles` accepts `public`, `private`, and `host`. Its default permits
-public internet access plus private networks reachable from the host, including
-Tailscale routes and split-DNS destinations. Use `[ "public" ]` to retain the
-Microsandbox public-network default.
+`networkProfiles` accepts `public`, `private`, and `host`. The default,
+`[ "public" ]`, is the Microsandbox default: public internet only, with private
+ranges (RFC 1918, Tailscale's `100.64.0.0/10`, IPv6 ULA), loopback, link-local,
+cloud metadata, and the host denied. Avoid `private` for agents that handle
+untrusted input: it opens every private network the host can reach, including
+the LAN, the whole tailnet, and VPN routes.
+
+`allowedNetworks` and `deniedNetworks` take IPv4 or IPv6 addresses and CIDRs
+and are passed to `msb create` as `--net-rule` entries, all ports and protocols.
+Denies take precedence over allows, and both take precedence over the
+profiles. Allowing a private range also lets DNS return private addresses in
+it. Use `deniedNetworks` for host-local ranges that Microsandbox would
+otherwise classify as public, such as Docker networks outside RFC 1918.
 
 Keep paths and the sandbox prefix unchanged until existing tasks are cleaned
 up. CPU, memory, root-disk, network, and image changes apply to newly created

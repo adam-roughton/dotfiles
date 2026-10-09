@@ -90,13 +90,14 @@ logged() {
   fail "missing msb invocation: $expected"
 }
 expected_create() {
-  local profile=()
+  local profile=() network=(--net "${values[7]}")
+  if [ -n "${values[13]}" ]; then network+=(--net-rule "${values[13]}"); fi
   if [ -n "${values[12]}" ]; then
     profile=(--env "OPENCODE_CONFIG=/home/adamr/.config/agent-profiles/${values[12]}/opencode.json"
       --env "AGENT_PROFILE=${values[12]}")
   fi
   logged create --name "${1:-$SANDBOX}" --cpus "${3:-4}" --memory "${4:-8G}" --root-disk "${values[6]}" \
-    --net "${values[7]}" \
+    "${network[@]}" \
     --volume "$UPSTREAM:/mnt/upstream.git:ro" --volume "${2:-$CLONE}:/workspace" \
     --volume "$CACHE:/cache" \
     --volume "$CACHE/cargo/registry:/root/.cargo/registry" \
@@ -1615,12 +1616,13 @@ if [ "${1:-}" = --case ]; then
   export GIT_CONFIG_GLOBAL="$CASE/gitconfig"
   # Render the same shell-escaped settings that Home Manager bakes into the command.
   SCRIPT="$CASE/bin/code-agent"
-  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory rootDisk networkProfiles cacheDirectory copilotTokenFile opencodeConfig opencode agentProfile)
-  values=("$CASE/workspaces" "$CASE/upstream" code-agent dotfiles-agent:latest 4 8G 12G "public,private" "$CASE/package-cache"
-    '' '{"autoupdate":false,"share":"disabled"}' "$CASE/bin/opencode" code)
+  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory rootDisk networkProfiles cacheDirectory copilotTokenFile opencodeConfig opencode agentProfile networkRules)
+  values=("$CASE/workspaces" "$CASE/upstream" code-agent dotfiles-agent:latest 4 8G 12G public "$CASE/package-cache"
+    '' '{"autoupdate":false,"share":"disabled"}' "$CASE/bin/opencode" code '')
   if [ "$CASE_NAME" = configured_settings ]; then
-    values=("$CASE/workspaces with ' quotes" "$CASE/upstream with spaces" custom-prefix custom-agent:configured 2 512M 16G public "$CASE/package cache with ' quotes"
-      '' '{"model":"github-copilot/example model","share":"disabled"}' "$CASE/bin/opencode" data_agent)
+    values=("$CASE/workspaces with ' quotes" "$CASE/upstream with spaces" custom-prefix custom-agent:configured 2 512M 16G 'public,private' "$CASE/package cache with ' quotes"
+      '' '{"model":"github-copilot/example model","share":"disabled"}' "$CASE/bin/opencode" data_agent
+      'deny@172.120.0.0/16,deny@[fd00::/8],allow@100.64.0.0/10')
   fi
   CREATE_EXTRA=()
   CACHE="${values[8]}"

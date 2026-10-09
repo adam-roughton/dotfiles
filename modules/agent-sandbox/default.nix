@@ -2,14 +2,21 @@
 let
   cfg = config.dotfiles.agentSandbox;
   json = pkgs.formats.json { };
+  # An IPv4 or IPv6 address, optionally with a prefix length.
+  network = lib.types.strMatching "([0-9]{1,3}(\\.[0-9]{1,3}){3}(/[0-9]{1,2})?|[0-9a-fA-F.]*:[0-9a-fA-F:.]*(/[0-9]{1,3})?)";
+  # microsandbox requires IPv6 targets to be bracketed.
+  networkRule = action: address: "${action}@${if lib.hasInfix ":" address then "[${address}]" else address}";
+  # Explicit rules are evaluated before profile rules, and the first match wins,
+  # so denies are listed first to override both allows and profiles.
+  networkRules = map (networkRule "deny") cfg.deniedNetworks ++ map (networkRule "allow") cfg.allowedNetworks;
   # opencode is only needed on the host for `code-agent login`.
   opencode = if cfg.copilotTokenFile == null then "opencode" else "${pkgs.opencode}/bin/opencode";
   codeAgent = pkgs.writeShellApplication {
     name = "code-agent";
     runtimeInputs = with pkgs; [ coreutils gnused git jq ];
     text = lib.replaceStrings
-      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@rootDisk@" "@networkProfiles@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" "@agentProfile@" ]
-      (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory cfg.rootDisk (concatStringsSep "," cfg.networkProfiles) cfg.cacheDirectory
+      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@rootDisk@" "@networkProfiles@" "@networkRules@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" "@agentProfile@" ]
+      (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory cfg.rootDisk (lib.concatStringsSep "," cfg.networkProfiles) (lib.concatStringsSep "," networkRules) cfg.cacheDirectory
         (if cfg.copilotTokenFile == null then "" else cfg.copilotTokenFile) (builtins.toJSON cfg.opencodeConfig) opencode
         (if cfg.agentProfile == null then "" else cfg.agentProfile) ])
       (builtins.readFile ./scripts/code-agent);
@@ -67,8 +74,29 @@ in with lib; {
       };
       networkProfiles = mkOption {
         type = types.listOf (types.enum [ "public" "private" "host" ]);
-        default = [ "public" "private" ];
-        description = "Microsandbox network profiles enabled for new sandboxes. Private access permits Tailscale and other host-reachable private networks.";
+        default = [ "public" ];
+        description = ''
+          Microsandbox network profiles enabled for new sandboxes. `private` permits every private range the
+          host can reach (LAN, Tailscale, VPNs); prefer `allowedNetworks` for specific destinations.
+        '';
+      };
+      deniedNetworks = mkOption {
+        type = types.listOf network;
+        default = [ ];
+        example = [ "172.120.0.0/16" "fd00::/8" ];
+        description = ''
+          Addresses or CIDRs that new sandboxes may not reach, on any port. Takes precedence over
+          allowedNetworks and networkProfiles.
+        '';
+      };
+      allowedNetworks = mkOption {
+        type = types.listOf network;
+        default = [ ];
+        example = [ "100.64.0.0/10" "fd7a:115c:a1e0::/48" ];
+        description = ''
+          Addresses or CIDRs that new sandboxes may reach on any port, in addition to networkProfiles.
+          Also permits private DNS answers in these ranges.
+        '';
       };
       copilotTokenFile = mkOption {
         type = types.nullOr (types.strMatching "/[^\n:]*");
