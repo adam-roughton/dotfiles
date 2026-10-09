@@ -34,7 +34,6 @@
       "lima"
       "microsandbox"
     ];
-
   };
 
   environment.systemPackages = with pkgs; [

@@ -14,6 +14,33 @@ let
   '' + ''
     source ${./profile}
   '';
+  shellAliases = {
+    "ls" = "eza";
+    ".." = "cd ..";
+    "..." = "cd ../..";
+    "...." = "cd ../../..";
+    "....." = "cd ../../../..";
+
+    "ll" = "eza -l --git --time-style long-iso";
+    "la" = "eza --all --all";
+    "lla" = "eza -l --git --time-style long-iso --all --all";
+    "lr" = "eza -l -snew -r --git --time-style long-iso";
+    "lra" = "eza -l -snew -r --git --time-style long-iso --all --all";
+
+    "r" = "ranger";
+    "t" = "todo.sh";
+    "tf" = "todo.sh list";
+  }
+    // cfg.extraAliases
+    // lib.optionalAttrs config.dotfiles.agentSandbox.enabled { "ca" = "code-agent"; }
+    // lib.optionalAttrs config.dotfiles.infraAgent.enabled { "ia" = "infra-agent"; };
+
+  dotfiles.agentSandbox = {
+    enabled = true;
+    copilotTokenFile = "${home.homeDirectory}/development/agent/credentials/github-copilot-token";
+  };
+
+
 in {
 
   imports = [ 
@@ -87,8 +114,7 @@ in {
     ]);
 
     programs.bash.enable = true;
-    programs.bash.shellAliases.ca = "code-agent";
-    programs.bash.shellAliases.ia = "infra-agent";
+    programs.bash.shellAliases = shellAliases;
     programs.zsh = {
       enable = true;
       enableCompletion = true;
@@ -102,25 +128,7 @@ in {
         extended = true;
         share = true;
       };
-      shellAliases = {
-        "ca" = "code-agent";
-        "ia" = "infra-agent";
-        "ls" = "eza";
-        ".." = "cd ..";
-        "..." = "cd ../..";
-        "...." = "cd ../../..";
-        "....." = "cd ../../../..";
-
-        "ll" = "eza -l --git --time-style long-iso";
-        "la" = "eza --all --all";
-        "lla" = "eza -l --git --time-style long-iso --all --all";
-        "lr" = "eza -l -snew -r --git --time-style long-iso";
-        "lra" = "eza -l -snew -r --git --time-style long-iso --all --all";
-
-        "r" = "ranger";
-        "t" = "todo.sh";
-        "tf" = "todo.sh list";
-      } // cfg.extraAliases;
+      shellAliases = shellAliases;
       siteFunctions = {
         tt = ''
           todo.sh list +$(date -Idate) 

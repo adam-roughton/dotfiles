@@ -28,6 +28,9 @@ darwin.lib.darwinSystem {
           "superradcompany/homebrew-microsandbox" = inputs.homebrew-microsandbox;
         };
         mutableTaps = false;
+        trust = {
+          taps = [ "superradcompany/microsandbox" ];
+        };
       };
       homebrew.taps = builtins.attrNames config.nix-homebrew.taps;
     })
