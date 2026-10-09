@@ -111,11 +111,40 @@ in {
   dotfiles.agentProfiles = {
     skills = {
       task-handover.source = ../../skills/task-handover;
+      infra-triage.source = ../../skills/infra-triage;
+      incident-report.source = ../../skills/incident-report;
     };
     # Skills every agent type gets.
     baseSkills = [ ];
     profiles = {
       code.skills = [ "task-handover" ];
+      # infra-agent (modules/infra-agent): production triage through the
+      # environment's broker. The VM has no other network access, so the
+      # browser is disabled. INFRA_MCP_URL is set when the sandbox is created
+      # and INFRA_MCP_TOKEN on every attach, from the incident's token mount.
+      infra = {
+        skills = [ "infra-triage" "incident-report" ];
+        opencodeSettings = {
+          instructions = [ "${./infra-agent.md}" ];
+          mcp = {
+            playwright.enabled = false;
+            infra = {
+              type = "remote";
+              url = "{env:INFRA_MCP_URL}";
+              headers.Authorization = "Bearer {env:INFRA_MCP_TOKEN}";
+              # The broker uses incident bearer tokens, not OAuth.
+              oauth = false;
+              # Some broker upstreams (Azure MCP, DBHub) are slow to start.
+              timeout = 60000;
+              enabled = true;
+            };
+          };
+          permission = {
+            webfetch = "deny";
+            websearch = "deny";
+          };
+        };
+      };
     };
   };
 
@@ -154,15 +183,8 @@ in {
     postgresql
     mariadb.client
 
-    # cloud
-    awscli2
+    # cloud (infra access goes through the infra-agent broker's MCP tools)
     azure-cli
-
-    # kubernetes
-    kubectl
-    kubelogin
-    aws-iam-authenticator
-    kubetail
   ];
 
   home.file."AGENTS.md".source = ./AGENTS.md;
