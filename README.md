@@ -734,12 +734,13 @@ After committing the work, sync from the original host checkout:
 ca sync
 ```
 
-`sync` rejects a dirty host or agent tree and requires the agent to be on the
-task branch. It bundles committed agent history and fetches it into an incoming
-ref, then fast-forwards the corresponding host task branch. If that branch is
-checked out here, the index and working files update too. If another branch is
-checked out, that checkout stays unchanged. A branch checked out in another
-worktree cannot be updated this way.
+`sync` rejects modified or untracked host and agent files and requires the agent
+to be on the task branch. Ignored files in the agent workspace are retained and
+do not block sync. It bundles committed agent history and fetches it into an
+incoming ref, then fast-forwards the corresponding host task branch. If that
+branch is checked out here, the index and working files update too. If another
+branch is checked out, that checkout stays unchanged. A branch checked out in
+another worktree cannot be updated this way.
 
 If the histories diverge, sync stops without modifying the task branch and
 prints the incoming ref where the agent commits were preserved. Merge or rebase

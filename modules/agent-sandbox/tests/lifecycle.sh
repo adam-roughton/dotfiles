@@ -822,19 +822,28 @@ dirty_clone_sync() {
   commit_work
   local kind before refs
   refs="$(git -C "$HOST" show-ref)"
-  for kind in dirty staged untracked ignored; do
+  for kind in dirty staged untracked; do
     case "$kind" in
       dirty|staged) printf 'dirty\n' >> "$CLONE/tracked" ;;
-      untracked|ignored) printf '%s\n' "$kind" > "$CLONE/$kind" ;;
+      untracked) printf '%s\n' "$kind" > "$CLONE/$kind" ;;
     esac
     if [ "$kind" = staged ]; then git -C "$CLONE" add tracked; fi
     before="$(snapshot)"
-    reject 'workspace has modified, untracked, or ignored files' sync "$TASK"
+    reject 'workspace has modified or untracked files' sync "$TASK"
     equal "$(snapshot)" "$before"
     equal "$(git -C "$HOST" show-ref)" "$refs"
     git -C "$CLONE" restore --staged --worktree tracked
-    if [ "$kind" = untracked ] || [ "$kind" = ignored ]; then rm -- "$CLONE/$kind"; fi
+    if [ "$kind" = untracked ]; then rm -- "$CLONE/$kind"; fi
   done
+}
+
+ignored_clone_sync() {
+  setup
+  commit_work
+  printf 'ignored\n' > "$CLONE/ignored"
+  ok sync "$TASK"
+  equal "$(< "$CLONE/ignored")" 'ignored'
+  equal "$(git -C "$HOST" rev-parse "$BRANCH")" "$(git -C "$CLONE" rev-parse HEAD)"
 }
 
 repeated_sync() {
@@ -1736,7 +1745,7 @@ tests=(roundtrip reuse mount_isolation cache_sharing cache_reuse cache_lazy_crea
   repo_identity task_identity readable_layout attach_command agent_profile no_agent_profile task_name_clash long_task_names legacy_layout main_task rebased_source
   optional_task slash_branch main_prompt_setup main_prompt_start explicit_branch_setup explicit_branch_start
   missing_task dirty_handover staged_handover untracked_handover divergent_sync noncurrent_sync
-  other_worktree_sync dirty_clone_sync repeated_sync
+  other_worktree_sync dirty_clone_sync ignored_clone_sync repeated_sync
   ignored_switch_collision ignored_sync_collision host_tag_collision main_tag_prompt
   clone_tag_collision squash_merge_options sync_repo_lock
   detached_host dirty_host untracked_host dirty_cleanup untracked_cleanup ignored_cleanup

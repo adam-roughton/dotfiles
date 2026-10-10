@@ -127,7 +127,7 @@ command_help() {
       ;;
   esac
   if [ "$command" = sync ]; then
-    printf '%s\n' 'The agent tree must be clean and on the task branch. Another worktree owning' 'the target branch blocks the update. LFS/submodule payloads are not transferred.'
+    printf '%s\n' 'The agent tree must have no tracked or untracked changes and be on the task branch. Another worktree owning' 'the target branch blocks the update. Ignored files are retained. LFS/submodule payloads are not transferred.'
   elif [ "$command" = cleanup ]; then
     printf '\n%s\n' 'Options:' '  --dry-run  Show removal targets without stopping or deleting anything.' '             Does not perform work-preservation checks.' '  --discard  Delete even unpreserved work. Irreversible; use deliberately.'
   fi
@@ -363,6 +363,11 @@ require_clone() {
   [ "$(git -C "$clone" rev-parse --show-toplevel)" = "$clone" ] || die 'workspace repository mismatch'
 }
 require_clean() {
+  local status
+  status="$(git -C "$clone" status --porcelain --untracked-files=all)" || die 'cannot inspect workspace; refusing to continue'
+  [ -z "$status" ] || die 'workspace has modified or untracked files; preserve them or use cleanup --discard'
+}
+require_discardable() {
   local status
   status="$(git -C "$clone" status --porcelain --untracked-files=all --ignored)" || die 'cannot inspect workspace; refusing to continue'
   [ -z "$status" ] || die 'workspace has modified, untracked, or ignored files; preserve them or use cleanup --discard'
@@ -618,7 +623,7 @@ case "$action" in
     if [ "$discard" = false ]; then
       require_clone
       # The clone is the entire writable mount, so its status covers every file.
-      require_clean
+      require_discardable
       scratch="$(mktemp -d "${TMPDIR:-/tmp}/code-agent.XXXXXXXX")"
       # Include stash, reflogs, and annotated tags, not just the current branch.
       git -C "$clone" rev-list --objects --all --reflog HEAD | cut -d ' ' -f 1 | sort -u > "$scratch/workspace-objects"
