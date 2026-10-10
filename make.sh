@@ -6,7 +6,16 @@ set -o pipefail
 
 DOTFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
+# agent-image (modules/agent-sandbox) runs `make.sh image` from the copy of
+# this repository in the Nix store and names itself in DOTFILES_IMAGE_COMMAND.
+image_command="${DOTFILES_IMAGE_COMMAND:-$0 image}"
+
 usage() {
+  if [ -n "${DOTFILES_IMAGE_COMMAND:-}" ]; then
+    echo "usage: $DOTFILES_IMAGE_COMMAND [agent|broker] [--force] [NIX OPTIONS...]" >&2
+    echo "       $DOTFILES_IMAGE_COMMAND project DIR [--name NAME] [--force] [NIX OPTIONS...]" >&2
+    exit 1
+  fi
   echo "usage: $0 {build|image|vm|disk-image|firmware|switch|update|clean} [SYSTEM] [OPTIONS...]" >&2
   echo "       $0 image [agent|broker] [--force] [NIX OPTIONS...]" >&2
   echo "       $0 image project DIR [--name NAME] [--force] [NIX OPTIONS...]" >&2
@@ -88,18 +97,35 @@ build_attr() {
 NIX_BUILDER_IMAGE="nixos/nix:2.35.2"
 
 # Start of every script run in the builder container. Its first argument is the
-# host repo path (for error messages); the script's own arguments follow.
+# host repo path (for error messages); the script's own arguments follow. A
+# checkout is bind-mounted at /src; a copy of the source in the Nix store is
+# streamed to stdin as a tar archive instead (see run_in_builder_container).
 # shellcheck disable=SC2016
 CONTAINER_PRELUDE='
 set -eu
 host_dir="$1"
 shift
-if [ ! -f /src/flake.nix ]; then
-  echo "$host_dir is not visible to the Docker VM; move it under a shared directory (colima shares \$HOME by default)" >&2
-  exit 1
+if [ "${DOTFILES_SOURCE:-}" = stdin ]; then
+  mkdir /src
+  tar -x -f - -C /src --warning=no-unknown-keyword
+  cat > /dev/null
+  # Not a git repository; the store copy already contains the submodules.
+  flake="path:/src"
+else
+  if [ ! -f /src/flake.nix ]; then
+    echo "$host_dir is not visible to the Docker VM; move it under a shared directory (colima shares \$HOME by default)" >&2
+    exit 1
+  fi
+  # The bind-mounted repository is owned by the host user, not container root.
+  printf "[safe]\n\tdirectory = *\n" > "${HOME:-/root}/.gitconfig"
+  # Request submodules in the flake reference itself. With a plain "/src" the
+  # flake is first fetched without submodules and, because of
+  # `inputs.self.submodules`, refetched at its locked (clean-tree) revision;
+  # that path fetches each submodule from its remote URL, and the container
+  # has no GitHub credentials. Asking for submodules up front reads them from
+  # the checked-out working tree under /src instead.
+  flake="git+file:///src?submodules=1"
 fi
-# The bind-mounted repository is owned by the host user, not container root.
-printf "[safe]\n\tdirectory = *\n" > "${HOME:-/root}/.gitconfig"
 # Unprivileged containers cannot create the Nix build sandbox. keep-outputs and
 # keep-derivations make the GC roots below (one per image) also retain the
 # build-time inputs of each image, so rebuilds stay incremental while store
@@ -108,13 +134,6 @@ export NIX_CONFIG="extra-experimental-features = nix-command flakes
 sandbox = false
 keep-outputs = true
 keep-derivations = true"
-# Request submodules in the flake reference itself. With a plain "/src" the
-# flake is first fetched without submodules and, because of
-# `inputs.self.submodules`, refetched at its locked (clean-tree) revision; that
-# path fetches each submodule from its remote URL, and the container has no
-# GitHub credentials. Asking for submodules up front reads them from the
-# checked-out working tree under /src instead.
-flake="git+file:///src?submodules=1"
 '
 
 # Arguments: flake attribute, then extra nix build options. The attribute must
@@ -204,25 +223,41 @@ run_in_builder_container() {
     exit 1
   }
 
-  # The container reads submodules from the working tree; an uninitialised one
-  # would make Nix fall back to cloning it from its remote URL, which needs
-  # credentials the container does not have.
-  local submodule_line
-  while IFS= read -r submodule_line; do
-    case "$submodule_line" in
-      -*)
-        echo "submodule ${submodule_line#* } is not checked out; run: git -C '$DOTFILES_DIR' submodule update --init" >&2
-        exit 1
-        ;;
-    esac
-  done < <(git -C "$DOTFILES_DIR" submodule status)
+  # A checkout is bind-mounted. agent-image runs this script from the source
+  # in the Nix store, which the Docker VM cannot see (colima shares only $HOME
+  # by default), so that copy is streamed to the container instead.
+  local stream_source=false
+  local source_options=()
+  if [ -e "$DOTFILES_DIR/.git" ]; then
+    # The container reads submodules from the working tree; an uninitialised
+    # one would make Nix fall back to cloning it from its remote URL, which
+    # needs credentials the container does not have.
+    local submodule_line
+    while IFS= read -r submodule_line; do
+      case "$submodule_line" in
+        -*)
+          echo "submodule ${submodule_line#* } is not checked out; run: git -C '$DOTFILES_DIR' submodule update --init" >&2
+          exit 1
+          ;;
+      esac
+    done < <(git -C "$DOTFILES_DIR" submodule status)
+    source_options=(--mount "type=bind,source=$DOTFILES_DIR,target=/src,readonly")
+  else
+    stream_source=true
+    source_options=(--interactive --env DOTFILES_SOURCE=stdin)
+  fi
 
-  docker run --rm --init --platform "$platform" \
-    --volume "dotfiles-agent-image-nix-$image_system:/nix" \
-    --mount "type=bind,source=$DOTFILES_DIR,target=/src,readonly" \
-    ${docker_options[@]+"${docker_options[@]}"} \
-    "$NIX_BUILDER_IMAGE" \
-    sh -c "$script" sh "$DOTFILES_DIR" "$@" > "$output"
+  local docker_run=(docker run --rm --init --platform "$platform"
+    --volume "dotfiles-agent-image-nix-$image_system:/nix"
+    "${source_options[@]}"
+    ${docker_options[@]+"${docker_options[@]}"}
+    "$NIX_BUILDER_IMAGE"
+    sh -c "$script" sh "$DOTFILES_DIR" "$@")
+  if [ "$stream_source" = true ]; then
+    tar -c -f - -C "$DOTFILES_DIR" . | "${docker_run[@]}" > "$output"
+  else
+    "${docker_run[@]}" > "$output"
+  fi
 }
 
 # Builds a flake image attribute in the builder container and writes the image
@@ -458,6 +493,9 @@ shift || true
 
 case "$mode" in
   "image")
+    case "${1:-}" in
+      -h|--help|help) usage ;;
+    esac
     force=false
     if [ "${1:-}" = "--force" ]; then
       force=true
@@ -522,7 +560,7 @@ case "$mode" in
     if image_registered "$image_tag"; then image_exists=true; fi
     if [ "$image_exists" = true ] && [ "$force" = false ]; then
       echo "Microsandbox image already registered: $image_tag" >&2
-      echo "Use '$0 image $image_kind --force' to rebuild and replace it." >&2
+      echo "Use '$image_command $image_kind --force' to rebuild and replace it." >&2
       exit 0
     fi
     if [ "$image_exists" = true ]; then

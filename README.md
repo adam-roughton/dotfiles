@@ -143,7 +143,8 @@ On macOS the image contents must still be built on Linux, so `make.sh image`
 runs the Nix build inside a pinned `nixos/nix` container and loads the
 resulting tarball. This needs a running Docker daemon (for example
 `colima start`) and the repository must be in a directory shared with the Docker
-VM (colima shares `$HOME` by default). It does not need a Nix Linux builder or
+VM (colima shares `$HOME` by default; `agent-image`, below, streams its copy of
+the source to the container instead). It does not need a Nix Linux builder or
 trusted-user settings on the host. The container's `/nix` store is kept in the
 Docker volume `dotfiles-agent-image-nix-<system>` so rebuilds are incremental.
 After each build the current image (and its build inputs) is kept as a GC root
@@ -345,11 +346,11 @@ task is gone, the leftover `<workspaceDirectory>/code-agent` and
 Build and register the local microsandbox image:
 
 ```sh
-./make.sh image
+agent-image
 ```
 
 If the tag is already registered, this does nothing. Rebuild and replace it
-after changing the image definition or toolchain with `./make.sh image --force`.
+after changing the image definition or toolchain with `agent-image --force`.
 Replacing refuses, before building, while any sandbox was created from the tag;
 remove those sandboxes first (for example with `code-agent cleanup`).
 Configure the command through `dotfiles.agentSandbox` in your `home.nix`:
@@ -371,7 +372,6 @@ dotfiles.agentSandbox = {
   copilotTokenFile = "${config.home.homeDirectory}/development/agent/credentials/github-copilot-token";
   opencodeConfig = { model = "github-copilot/claude-opus-5.5"; };
   agentProfile = "code";
-  dotfilesDirectory = "${config.home.homeDirectory}/dotfiles";
 };
 ```
 
@@ -394,13 +394,20 @@ All settings except `enabled` are optional and have these defaults:
 | `copilotTokenFile` | `null` (no Copilot secret) |
 | `opencodeConfig` | `{ autoupdate = false; share = "disabled"; }`, merged with your settings |
 | `agentProfile` | `code` (`null` for no profile) |
-| `dotfilesDirectory` | `<homeDirectory>/dotfiles` (`null` to ignore `shell.nix` files) |
 
 Activate your Home Manager configuration before building the image.
-`make.sh image` reads the configured tag from `code-agent --print-image`.
+`agent-image` and `make.sh image` read the configured tag from
+`code-agent --print-image`.
 Settings are baked into the installed command; environment variables do not
 override them. Paths must be absolute, CPUs must be positive, and memory and
 root-disk sizes use microsandbox syntax such as `8G` or `512M`.
+
+`agent-image` is installed with `code-agent`. It runs `make.sh image` (taking
+the same arguments after `image`) from the copy of this repository in the Nix
+store that the active Home Manager generation was built from, so it needs no
+checkout and builds the images that the installed configuration defines. Changes
+to the image definitions reach it after a switch; to try uncommitted changes,
+run `./make.sh image` from the checkout instead.
 
 `networkProfiles` accepts `public`, `private`, and `host`. The default,
 `[ "public" ]`, is the Microsandbox default: public internet only, with private
@@ -442,8 +449,8 @@ When the host checkout has a `shell.nix` at its root (tracked or ignored), new
 sandboxes for it use a project image: the agent image plus that shell's
 environment, baked in when the image is built. The sandbox needs neither Nix
 nor a network connection for it, and starting a sandbox from an existing project
-image costs nothing extra. `code-agent start` runs `make.sh image project` from
-`dotfilesDirectory` before creating the sandbox, which:
+image costs nothing extra. `code-agent start` runs `agent-image project` before
+creating the sandbox, which:
 
 1. Evaluates (without building) the agent image and the shell, and derives a
    key from the two derivations. On macOS this runs in the builder container
@@ -457,9 +464,10 @@ image costs nothing extra. `code-agent start` runs `make.sh image project` from
 The shell is rebuilt when `shell.nix` or anything it imports changes the
 shell's derivation, and when the agent image definition changes (for example
 after `make.sh update`). Existing sandboxes keep the image they were created
-with; recreate a task's sandbox to pick up changes. Builds use the dotfiles
-checkout as it is, including uncommitted changes, so a project image can be
-newer than the registered default image.
+with; recreate a task's sandbox to pick up changes. `agent-image` builds from
+the dotfiles of the active Home Manager generation, so project images follow
+the installed configuration rather than uncommitted changes in a checkout; run
+`./make.sh image project` from the checkout to build from it instead.
 
 `<nixpkgs>` in `shell.nix`, and in project files it imports, resolves to the
 image's pinned nixpkgs rather than the host's `NIX_PATH`, so the environment
@@ -480,12 +488,12 @@ host state in their `shellHook` are not supported.
 Build or refresh a project image directly with:
 
 ```sh
-./make.sh image project ~/src/my-project [--name NAME] [--force]
+agent-image project ~/src/my-project [--name NAME] [--force]
 ```
 
 `--name` sets the tag prefix (default: the directory name; `code-agent` passes
 `<repo>-<path hash>`). On macOS the project directory must be shared with the
-Docker VM, like this repository. The builder volume keeps only the latest
+Docker VM. The builder volume keeps only the latest
 project image's store paths, so rebuilding an older project's image downloads
 its packages again. Project and agent image builds are serialized with the lock
 `~/.cache/dotfiles/agent-image.lock`.

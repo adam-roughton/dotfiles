@@ -4,9 +4,12 @@ set -euo pipefail
 TEST_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 SELF="$TEST_DIR/lifecycle.sh"
 TEMPLATE="$(cd -- "$TEST_DIR/../scripts" && pwd -P)/code-agent"
-# The guest-side attach wrapper, kept identical to code-agent's attach_script.
+# The guest-side attach wrapper and project activation, kept identical to
+# code-agent's attach_script and project_activation.
 # shellcheck disable=SC2016
-ATTACH_SCRIPT='if [ -n "${OPENCODE_CONFIG:-}" ] && [ ! -r "$OPENCODE_CONFIG" ]; then printf "%s\n" "code-agent: this sandbox image has no agent profile ${AGENT_PROFILE:-} ($OPENCODE_CONFIG). Rebuild the image with make.sh image --force (after cleaning up the sandboxes that use it), then start the task again." >&2; exit 1; fi; cd /workspace && exec "$@"'
+ATTACH_SCRIPT='activate="$1"; shift; if [ -n "${OPENCODE_CONFIG:-}" ] && [ ! -r "$OPENCODE_CONFIG" ]; then printf "%s\n" "code-agent: this sandbox image has no agent profile ${AGENT_PROFILE:-} ($OPENCODE_CONFIG). Rebuild the image with agent-image --force (after cleaning up the sandboxes that use it), then start the task again." >&2; exit 1; fi; cd /workspace || exit 1; if [ -r /etc/agent-project/env.sh ]; then exec bash -c "$activate" code-agent "$@"; fi; exec "$@"'
+# shellcheck disable=SC2016
+PROJECT_ACTIVATION='agent_command=("$@"); agent_shell="$SHELL"; . /etc/agent-project/env.sh; export SHELL="$agent_shell"; exec "${agent_command[@]}"'
 
 fail() { printf 'FAIL: %s\n%s\n' "$*" "${OUTPUT:-}" >&2; exit 1; }
 equal() { [ "$1" = "$2" ] || fail "expected [$2], got [$1]"; }
@@ -163,7 +166,7 @@ roundtrip() {
   absent "$CACHE"
   ok start "$TASK"
   expected_create
-  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent opencode
+  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent "$PROJECT_ACTIVATION" opencode
   commit_work
   ok sync "$TASK"
   equal "$(git -C "$HOST" rev-parse "$BRANCH")" "$(git -C "$CLONE" rev-parse HEAD)"
@@ -483,7 +486,7 @@ readable_layout() {
   equal "$entries" "$(printf '%s\n' .code-agent "$repo_key-improve_api")"
   ok start "$TASK"
   expected_create
-  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent opencode
+  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent "$PROJECT_ACTIVATION" opencode
   # Repository names are normalized for paths and sandbox names.
   new_repo "$CASE/odd/My.Repo Name!"
   setup 'Improve API'
@@ -494,10 +497,10 @@ readable_layout() {
 attach_command() {
   setup
   ok start "$TASK"
-  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent opencode
+  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent "$PROJECT_ACTIVATION" opencode
   ok stop "$TASK"
   ok resume "$TASK" -- git status --short
-  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent git status --short
+  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent "$PROJECT_ACTIVATION" git status --short
   reject 'Usage: code-agent start' start "$TASK" --
   reject 'Usage: code-agent resume' resume "$TASK" --
   reject 'Usage: code-agent stop' stop "$TASK" -- git status
@@ -510,7 +513,7 @@ agent_profile() {
   ok start "$TASK"
   # expected_create checks the OPENCODE_CONFIG and AGENT_PROFILE environment.
   expected_create
-  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent opencode
+  logged exec --tty "$SANDBOX" -- zsh -c "$ATTACH_SCRIPT" code-agent "$PROJECT_ACTIVATION" opencode
   # The profile is fixed when the sandbox is created; resuming does not recreate it.
   values[12]=other
   render
@@ -520,16 +523,16 @@ agent_profile() {
   # The guest wrapper refuses to attach when the image lacks the profile, and
   # skips the check for sandboxes created without one.
   local missing="$CASE/missing-profile/opencode.json" status=0
-  OUTPUT="$(OPENCODE_CONFIG="$missing" AGENT_PROFILE=code bash -c "$ATTACH_SCRIPT" code-agent true 2>&1)" || status=$?
+  OUTPUT="$(OPENCODE_CONFIG="$missing" AGENT_PROFILE=code bash -c "$ATTACH_SCRIPT" code-agent "$PROJECT_ACTIVATION" true 2>&1)" || status=$?
   equal "$status" 1
-  contains "$OUTPUT" "this sandbox image has no agent profile code ($missing). Rebuild the image with make.sh image --force"
+  contains "$OUTPUT" "this sandbox image has no agent profile code ($missing). Rebuild the image with agent-image --force"
   mkdir -p "$CASE/guest/workspace"
-  OUTPUT="$(cd "$CASE/guest" && env -u OPENCODE_CONFIG bash -c "${ATTACH_SCRIPT//\/workspace/workspace}" code-agent printf attached)" ||
+  OUTPUT="$(cd "$CASE/guest" && env -u OPENCODE_CONFIG bash -c "${ATTACH_SCRIPT//\/workspace/workspace}" code-agent "$PROJECT_ACTIVATION" printf attached)" ||
     fail 'attach wrapper refused a sandbox without a profile'
   equal "$OUTPUT" attached
   mkdir -p "$CASE/profile"
   : > "$CASE/profile/opencode.json"
-  OUTPUT="$(cd "$CASE/guest" && OPENCODE_CONFIG="$CASE/profile/opencode.json" bash -c "${ATTACH_SCRIPT//\/workspace/workspace}" code-agent pwd)" ||
+  OUTPUT="$(cd "$CASE/guest" && OPENCODE_CONFIG="$CASE/profile/opencode.json" bash -c "${ATTACH_SCRIPT//\/workspace/workspace}" code-agent "$PROJECT_ACTIVATION" pwd)" ||
     fail 'attach wrapper refused an installed profile'
   equal "$OUTPUT" "$CASE/guest/workspace"
 }
@@ -1564,6 +1567,69 @@ image_replacement() {
   equal "$(count_command load)" 1
 }
 
+project_image() {
+  local repo_key project_image=dotfiles-agent:project-0123456789abcdef
+  repo_key="project-$(short_hash "$(realpath -e "$HOST")" 8)"
+  # Without a shell.nix, agent-image is not run and the default image is used.
+  setup plain
+  ok start "$TASK"
+  expected_create
+  absent "$CASE/agent-image.log"
+  ok cleanup "$TASK"
+  printf '{ pkgs ? import <nixpkgs> { } }: pkgs.mkShell { }\n' > "$HOST/shell.nix"
+  git -C "$HOST" add shell.nix
+  git -C "$HOST" commit -qm shell
+  # A failed project image build creates no sandbox.
+  setup failing
+  if OUTPUT="$(FAKE_AGENT_IMAGE_STATUS=3 agent start "$TASK" 2>&1)"; then fail 'start succeeded without a project image'; fi
+  contains "$OUTPUT" 'cannot build the project image for shell.nix'
+  absent "$FAKE_MSB_STATE/$SANDBOX"
+  equal "$(< "$CASE/agent-image.log")" "project $(realpath -e "$HOST") --name $repo_key"
+  # An empty report is refused too.
+  if OUTPUT="$(agent start "$TASK" 2>&1)"; then fail 'start succeeded without a reported image'; fi
+  contains "$OUTPUT" 'agent-image did not report a project image'
+  absent "$FAKE_MSB_STATE/$SANDBOX"
+  ok cleanup "$TASK"
+  setup project
+  OUTPUT="$(FAKE_AGENT_IMAGE="$project_image" agent start "$TASK" 2>&1)" || fail 'start with a project image failed'
+  contains "$OUTPUT" "Image: $project_image"
+  expected_create "$SANDBOX" "$CLONE" 4 8G "$project_image"
+  equal "$(git config --file "$META" --get task.image)" "$project_image"
+  equal "$(tail -n 1 "$CASE/agent-image.log")" "project $(realpath -e "$HOST") --name $repo_key"
+}
+
+store_source_image() {
+  # agent-image runs make.sh from the copy of the repository in the Nix store:
+  # not a git checkout, and not visible to the Docker VM on macOS.
+  local source="$CASE/store/source" docker_log="$CASE/docker.log"
+  mkdir -p "$source/private"
+  cp -- "$TEST_DIR/../../../make.sh" "$TEST_DIR/../../../flake.nix" "$source/"
+  : > "$source/private/marker"
+  # shellcheck disable=SC2016 # The fakes' own arguments expand when they run.
+  printf '#!/usr/bin/env bash\ncase "${1:-}" in -s) echo Darwin ;; -m) echo arm64 ;; *) exec %q "$@" ;; esac\n' \
+    "$(type -P uname)" > "$CASE/bin/uname"
+  # The fake builder records its arguments and the streamed source, then
+  # writes an image tarball.
+  # shellcheck disable=SC2016
+  printf '#!/usr/bin/env bash\n[ "$1" = run ] || exit 0\nprintf "%%s\\n" "$@" > %q\ntar -t -f - | LC_ALL=C sort > %q.source\nprintf "image tarball\\n"\n' \
+    "$docker_log" "$docker_log" > "$CASE/bin/docker"
+  chmod +x "$CASE/bin/uname" "$CASE/bin/docker"
+  if OUTPUT="$(DOTFILES_IMAGE_COMMAND=agent-image bash "$source/make.sh" image --help 2>&1)"; then fail 'help succeeded'; fi
+  contains "$OUTPUT" 'usage: agent-image [agent|broker] [--force]'
+  contains "$OUTPUT" '       agent-image project DIR [--name NAME]'
+  OUTPUT="$(DOTFILES_IMAGE_COMMAND=agent-image bash "$source/make.sh" image 2>&1)" || fail 'store source image build failed'
+  contains "$OUTPUT" 'Use '"'"'agent-image agent --force'"'"' to rebuild and replace it.'
+  absent "$docker_log"
+  OUTPUT="$(FAKE_MSB_IMAGE=other:latest DOTFILES_IMAGE_COMMAND=agent-image bash "$source/make.sh" image 2>&1)" ||
+    fail 'store source image build failed'
+  contains "$OUTPUT" 'Registered microsandbox image: dotfiles-agent:latest'
+  equal "$(count_command load)" 1
+  contains "$(< "$docker_log")" $'--interactive\n--env\nDOTFILES_SOURCE=stdin\n'
+  [[ "$(< "$docker_log")" != *target=/src* ]] || fail 'store source bind-mounted'
+  contains "$(< "$docker_log")" $'\npackages.aarch64-linux.agent-image'
+  equal "$(< "$docker_log.source")" "$(printf '%s\n' ./ ./flake.nix ./make.sh ./private/ ./private/marker)"
+}
+
 command_help() {
   local command form before
   before="$(git -C "$HOST" show-ref)"
@@ -1616,13 +1682,13 @@ if [ "${1:-}" = --case ]; then
   export GIT_CONFIG_GLOBAL="$CASE/gitconfig"
   # Render the same shell-escaped settings that Home Manager bakes into the command.
   SCRIPT="$CASE/bin/code-agent"
-  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory rootDisk networkProfiles cacheDirectory copilotTokenFile opencodeConfig opencode agentProfile networkRules)
+  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory rootDisk networkProfiles cacheDirectory copilotTokenFile opencodeConfig opencode agentProfile networkRules agentImage)
   values=("$CASE/workspaces" "$CASE/upstream" code-agent dotfiles-agent:latest 4 8G 12G public "$CASE/package-cache"
-    '' '{"autoupdate":false,"share":"disabled"}' "$CASE/bin/opencode" code '')
+    '' '{"autoupdate":false,"share":"disabled"}' "$CASE/bin/opencode" code '' "$CASE/bin/agent-image")
   if [ "$CASE_NAME" = configured_settings ]; then
     values=("$CASE/workspaces with ' quotes" "$CASE/upstream with spaces" custom-prefix custom-agent:configured 2 512M 16G 'public,private' "$CASE/package cache with ' quotes"
       '' '{"model":"github-copilot/example model","share":"disabled"}' "$CASE/bin/opencode" data_agent
-      'deny@172.120.0.0/16,deny@[fd00::/8],allow@100.64.0.0/10')
+      'deny@172.120.0.0/16,deny@[fd00::/8],allow@100.64.0.0/10' "$CASE/bin/agent-image")
   fi
   CREATE_EXTRA=()
   CACHE="${values[8]}"
@@ -1632,7 +1698,12 @@ if [ "${1:-}" = --case ]; then
   : > "$FAKE_MSB_LOG"
   # The tracked fixture need not have its executable bit set.
   cp -- "$TEST_DIR/fake-msb" "$CASE/bin/msb"
-  chmod +x "$CASE/bin/msb"
+  # agent-image (make.sh image from the Nix store) logs its arguments and
+  # reports FAKE_AGENT_IMAGE, or fails with FAKE_AGENT_IMAGE_STATUS.
+  # shellcheck disable=SC2016 # The fake's own variables expand when it runs.
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> %q\n[ "${FAKE_AGENT_IMAGE_STATUS:-0}" = 0 ] || exit "$FAKE_AGENT_IMAGE_STATUS"\nprintf "%%s\\n" "${FAKE_AGENT_IMAGE:-}"\n' \
+    "$CASE/agent-image.log" > "$CASE/bin/agent-image"
+  chmod +x "$CASE/bin/msb" "$CASE/bin/agent-image"
   export PATH="$CASE/bin:$PATH"
   new_repo "$CASE/repositories/project"
   case "$CASE_NAME" in
@@ -1674,7 +1745,7 @@ tests=(roundtrip reuse mount_isolation cache_sharing cache_reuse cache_lazy_crea
   checked_out_destination no_main lock_refusal wrong_branch paused_lifecycle
   inspect_failure start_failure resume_failure transition_verification reflog_cleanup
   stash_cleanup annotated_tag_cleanup signed_push concurrent_setup interactive_lock copilot_secret copilot_existing_sandbox
-  copilot_token_checks copilot_login configured_settings image_replacement command_help)
+  copilot_token_checks copilot_login configured_settings image_replacement project_image store_source_image command_help)
 passed=0
 failed=0
 for test in "${tests[@]}"; do

@@ -1,5 +1,5 @@
 # Project agent images: the agent image plus a project's shell.nix environment.
-# Built by `make.sh image project`, which passes the inputs below in
+# Built by `make.sh image project` (`agent-image project`), which passes the inputs below in
 # environment variables, so these attributes only evaluate with --impure:
 #   AGENT_PROJECT_SHELL       absolute path of the project's shell.nix
 #   AGENT_PROJECT_IMAGE       image reference (NAME:TAG) for `image`
@@ -14,7 +14,7 @@ let
   getEnv = name:
     let value = builtins.getEnv name; in
     if value != "" then value
-    else throw "${name} is not set; build project images with `make.sh image project` (evaluation needs --impure)";
+    else throw "${name} is not set; build project images with `agent-image project` or `make.sh image project` (evaluation needs --impure)";
   absolutePath = name:
     let value = getEnv name; in
     if builtins.substring 0 1 value == "/" then /. + value

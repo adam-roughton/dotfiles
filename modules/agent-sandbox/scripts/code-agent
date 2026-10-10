@@ -17,15 +17,16 @@ copilot_token_file=@copilotTokenFile@
 opencode_config=@opencodeConfig@
 opencode=@opencode@
 agent_profile=@agentProfile@
-dotfiles_directory=@dotfilesDirectory@
+# Builds microsandbox images (make.sh image, from the dotfiles in the Nix store).
+agent_image=@agentImage@
 # Installed in the image by dotfiles.agentProfiles (modules/agent-profiles).
 agent_profile_directory=/home/adamr/.config/agent-profiles
 # Runs in the guest before every attach, with project_activation as its first
 # argument. opencode silently ignores a missing OPENCODE_CONFIG, so refuse to
-# start an agent without its profile's skills. Project images (make.sh image
+# start an agent without its profile's skills. Project images (agent-image
 # project) carry their shell.nix environment in /etc/agent-project/env.sh.
 # shellcheck disable=SC2016
-attach_script='activate="$1"; shift; if [ -n "${OPENCODE_CONFIG:-}" ] && [ ! -r "$OPENCODE_CONFIG" ]; then printf "%s\n" "code-agent: this sandbox image has no agent profile ${AGENT_PROFILE:-} ($OPENCODE_CONFIG). Rebuild the image with make.sh image --force (after cleaning up the sandboxes that use it), then start the task again." >&2; exit 1; fi; cd /workspace || exit 1; if [ -r /etc/agent-project/env.sh ]; then exec bash -c "$activate" code-agent "$@"; fi; exec "$@"'
+attach_script='activate="$1"; shift; if [ -n "${OPENCODE_CONFIG:-}" ] && [ ! -r "$OPENCODE_CONFIG" ]; then printf "%s\n" "code-agent: this sandbox image has no agent profile ${AGENT_PROFILE:-} ($OPENCODE_CONFIG). Rebuild the image with agent-image --force (after cleaning up the sandboxes that use it), then start the task again." >&2; exit 1; fi; cd /workspace || exit 1; if [ -r /etc/agent-project/env.sh ]; then exec bash -c "$activate" code-agent "$@"; fi; exec "$@"'
 # Loads the project environment like nix-shell would (the script is bash, and
 # runs the shellHook), then starts the command in it. Commands the agent runs
 # inherit the exported variables. The environment sets SHELL to bash; restore
@@ -118,7 +119,7 @@ command_help() {
       printf '%s\n' 'New sandboxes use no agent profile.'
     fi
     printf '%s\n' 'If the host checkout has a shell.nix, new sandboxes use a project image with its' \
-      'environment (make.sh image project; built on first use and after shell or image changes).'
+      'environment (agent-image project; built on first use and after shell or image changes).'
   fi
   case "$command" in
     setup|start|resume|sync)
@@ -534,14 +535,9 @@ case "$action" in
       # or the agent image definition changes. Existing sandboxes keep theirs.
       sandbox_image="$image"
       if [ -f "$repo_root/shell.nix" ]; then
-        if [ -z "$dotfiles_directory" ]; then
-          printf '%s\n' "WARNING: $repo_root/shell.nix is not applied: set dotfiles.agentSandbox.dotfilesDirectory to build project images." >&2
-        else
-          [ -x "$dotfiles_directory/make.sh" ] || die "cannot build a project image for shell.nix: $dotfiles_directory/make.sh is missing (dotfiles.agentSandbox.dotfilesDirectory)"
-          sandbox_image="$("$dotfiles_directory/make.sh" image project "$repo_root" --name "$repo_key")" || \
-            die 'cannot build the project image for shell.nix; fix it (or move it aside to use the default image) and retry'
-          [ -n "$sandbox_image" ] || die 'make.sh did not report a project image'
-        fi
+        sandbox_image="$("$agent_image" project "$repo_root" --name "$repo_key")" || \
+          die 'cannot build the project image for shell.nix; fix it (or move it aside to use the default image) and retry'
+        [ -n "$sandbox_image" ] || die 'agent-image did not report a project image'
       fi
       git config --file "$metadata" task.image "$sandbox_image"
       printf 'Image: %s\n' "$sandbox_image"

@@ -1,7 +1,20 @@
-{ config, pkgs, lib, ... }:
+{ config, pkgs, lib, inputs, ... }:
 let
   cfg = config.dotfiles.agentSandbox;
   json = pkgs.formats.json { };
+  # Builds microsandbox images (make.sh image). It runs make.sh from the copy
+  # of this repository in the Nix store (inputs.self, which includes the
+  # private submodule), so it needs no checkout and builds the images defined
+  # by the configuration that was switched to. The reference to the source
+  # keeps that copy from being garbage collected.
+  agentImage = pkgs.writeShellApplication {
+    name = "agent-image";
+    runtimeInputs = with pkgs; [ coreutils gnused gnutar git jq ];
+    text = ''
+      export DOTFILES_IMAGE_COMMAND=agent-image
+      exec ${pkgs.bash}/bin/bash ${lib.escapeShellArg "${inputs.self}/make.sh"} image "$@"
+    '';
+  };
   # An IPv4 or IPv6 address, optionally with a prefix length.
   network = lib.types.strMatching "([0-9]{1,3}(\\.[0-9]{1,3}){3}(/[0-9]{1,2})?|[0-9a-fA-F.]*:[0-9a-fA-F:.]*(/[0-9]{1,3})?)";
   # microsandbox requires IPv6 targets to be bracketed.
@@ -15,14 +28,19 @@ let
     name = "code-agent";
     runtimeInputs = with pkgs; [ coreutils gnused git jq ];
     text = lib.replaceStrings
-      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@rootDisk@" "@networkProfiles@" "@networkRules@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" "@agentProfile@" "@dotfilesDirectory@" ]
+      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@rootDisk@" "@networkProfiles@" "@networkRules@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" "@agentProfile@" "@agentImage@" ]
       (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory cfg.rootDisk (lib.concatStringsSep "," cfg.networkProfiles) (lib.concatStringsSep "," networkRules) cfg.cacheDirectory
         (if cfg.copilotTokenFile == null then "" else cfg.copilotTokenFile) (builtins.toJSON cfg.opencodeConfig) opencode
         (if cfg.agentProfile == null then "" else cfg.agentProfile)
-        (if cfg.dotfilesDirectory == null then "" else cfg.dotfilesDirectory) ])
+        "${agentImage}/bin/agent-image" ])
       (builtins.readFile ./scripts/code-agent);
   };
 in with lib; {
+  imports = [
+    (mkRemovedOptionModule [ "dotfiles" "agentSandbox" "dotfilesDirectory" ]
+      "code-agent builds project images with agent-image, which uses the copy of the dotfiles in the Nix store.")
+  ];
+
   options = {
     dotfiles.agentSandbox = {
       enabled = mkOption {
@@ -56,16 +74,7 @@ in with lib; {
       image = mkOption {
         type = types.nonEmptyStr;
         default = "dotfiles-agent:latest";
-        description = "Microsandbox image tag used by code-agent and make.sh image.";
-      };
-      dotfilesDirectory = mkOption {
-        type = types.nullOr (types.strMatching "/[^\n]*");
-        default = "${config.home.homeDirectory}/dotfiles";
-        defaultText = literalExpression ''"''${config.home.homeDirectory}/dotfiles"'';
-        description = ''
-          Absolute host path of this dotfiles checkout. code-agent runs its make.sh to build project images
-          for repositories with a shell.nix (make.sh image project). Null leaves shell.nix files unapplied.
-        '';
+        description = "Microsandbox image tag used by code-agent and agent-image.";
       };
       cpus = mkOption {
         type = types.ints.positive;
@@ -153,6 +162,7 @@ in with lib; {
     };
     home.packages = with pkgs; lib.optionals cfg.enabled [
       codeAgent
+      agentImage
     ];
   };
 }
