@@ -49,6 +49,7 @@ in
         "*.sw*"
         ".envrc"
         "shell.nix"
+        ".direnv"
       ];
     };
   };
