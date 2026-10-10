@@ -9,5 +9,5 @@ inputs.home-manager.lib.homeManagerConfiguration {
     config.cudaSupport = true;
   };
   modules = [ ./home.nix ];
-  extraSpecialArgs = { inherit system; };
+  extraSpecialArgs = { inherit system inputs; };
 }

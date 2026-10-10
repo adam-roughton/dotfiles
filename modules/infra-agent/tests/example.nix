@@ -9,6 +9,7 @@ let
   pkgs = inputs.nixpkgs.legacyPackages.${system};
   home = inputs.home-manager.lib.homeManagerConfiguration {
     inherit pkgs;
+    extraSpecialArgs = { inherit inputs; };
     modules = [
       ../../agent-sandbox
       ../.

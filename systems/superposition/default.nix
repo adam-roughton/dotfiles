@@ -15,7 +15,7 @@ darwin.lib.darwinSystem {
       nixpkgs.overlays = [ (import ./overlay.nix) ];
       home-manager.useGlobalPkgs = true;
       home-manager.useUserPackages = true;
-      home-manager.extraSpecialArgs = { inherit system; };
+      home-manager.extraSpecialArgs = { inherit system inputs; };
       home-manager.users."Adam.Roughton" = ./home.nix;
       nix-homebrew = {
         enable = true;

@@ -49,7 +49,7 @@ nixpkgs.lib.nixosSystem {
         nixpkgs.overlays = [ (import overlay) ];
         home-manager.useGlobalPkgs = true;
         home-manager.useUserPackages = true;
-        home-manager.extraSpecialArgs = { user = import ../user.nix; };
+        home-manager.extraSpecialArgs = { inherit inputs; user = import ../user.nix; };
         home-manager.users.${homeUser}.imports = [ homeModule ];
       };
     })
