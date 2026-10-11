@@ -97,7 +97,7 @@ command_help() {
   esac
   printf 'Usage: code-agent %s [TASK]' "$command"
   if [ "$command" = start ] || [ "$command" = resume ]; then printf ' [-- COMMAND [ARG...]]'; fi
-  if [ "$command" = cleanup ]; then printf ' [--discard] [--dry-run]'; fi
+  if [ "$command" = cleanup ]; then printf ' [TASK] [--task TASK-ID] [--all | --all-tasks] [--discard] [--dry-run]'; fi
   printf '\n\n%s\n\n' "$description"
   printf '%s\n' \
     'Task selection:' \
@@ -129,7 +129,14 @@ command_help() {
   if [ "$command" = sync ]; then
     printf '%s\n' 'The agent tree must have no tracked or untracked changes and be on the task branch. Another worktree owning' 'the target branch blocks the update. Ignored files are retained. LFS/submodule payloads are not transferred.'
   elif [ "$command" = cleanup ]; then
-    printf '\n%s\n' 'Options:' '  --dry-run  Show removal targets without stopping or deleting anything.' '             Does not perform work-preservation checks.' '  --discard  Delete even unpreserved work. Irreversible; use deliberately.'
+    printf '\n%s\n' \
+      'Options:' \
+      '  --task ID    Clean the recorded task with its full workspace ID. Works outside its repository.' \
+      '  --all        Clean every recorded task for the current repository.' \
+      '  --all-tasks  Clean every recorded task across all repositories.' \
+      '  --dry-run    Show removal targets without stopping or deleting anything.' \
+      '               Does not perform work-preservation checks.' \
+      '  --discard    Delete even unpreserved work. Irreversible; use deliberately.'
   fi
   case "$command" in
     start|resume|cleanup) printf '\n%s\n' 'Package managers use shared writable caches on new sandboxes; task cleanup retains them.' 'Concurrent VMs can corrupt lock-dependent caches. Stop all cache users before maintenance.' ;;
@@ -219,6 +226,9 @@ if [ "$action" = login ]; then
 fi
 task=''
 explicit_task=false
+cleanup_task_id=''
+cleanup_all=false
+cleanup_all_tasks=false
 if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then
   task="$1"
   explicit_task=true
@@ -235,14 +245,73 @@ if [ "$action" = start ] || [ "$action" = resume ]; then
 fi
 discard=false
 dry_run=false
-for option in "$@"; do
+while [ "$#" -gt 0 ]; do
   [ "$action" = cleanup ] || { command_help "$action" >&2; exit 2; }
-  case "$option" in
+  case "$1" in
     --discard) discard=true ;;
     --dry-run) dry_run=true ;;
+    --all) cleanup_all=true ;;
+    --all-tasks) cleanup_all_tasks=true ;;
+    --task)
+      shift
+      [ "$#" -gt 0 ] || { die 'cleanup --task requires a full task ID'; }
+      cleanup_task_id="$1"
+      ;;
     *) command_help "$action" >&2; exit 2 ;;
   esac
+  shift
 done
+
+# These selectors intentionally re-enter the normal single-task cleanup path.
+# That keeps the same sandbox stopping and preservation checks for every task.
+if [ "$action" = cleanup ] && { [ -n "$cleanup_task_id" ] || [ "$cleanup_all" = true ] || [ "$cleanup_all_tasks" = true ]; }; then
+  [ "$explicit_task" = false ] || die 'cleanup task selection cannot be combined with TASK'
+  selectors=0
+  [ -z "$cleanup_task_id" ] || selectors=$((selectors + 1))
+  [ "$cleanup_all" = false ] || selectors=$((selectors + 1))
+  [ "$cleanup_all_tasks" = false ] || selectors=$((selectors + 1))
+  [ "$selectors" -eq 1 ] || die 'choose only one of --task, --all, or --all-tasks'
+
+  workspace_root="$(realpath -m "$workspace_directory")"
+  state_root="$workspace_root/.code-agent"
+  cleanup_options=()
+  [ "$discard" = false ] || cleanup_options+=(--discard)
+  [ "$dry_run" = false ] || cleanup_options+=(--dry-run)
+  cleanup_one() {
+    local task_key="$1" metadata recorded_task recorded_repo
+    [[ "$task_key" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "invalid full task ID: $task_key"
+    metadata="$state_root/$task_key.state"
+    [ -f "$metadata" ] && [ ! -L "$metadata" ] || die "task is not set up: $workspace_root/$task_key"
+    recorded_task="$(git config --file "$metadata" --get task.name || true)"
+    recorded_repo="$(git config --file "$metadata" --get task.repository || true)"
+    [ -n "$recorded_task" ] && [ -n "$recorded_repo" ] || die "task metadata is incomplete: $metadata"
+    recorded_repo="$(realpath -e "$recorded_repo")" || die "task repository is missing: $recorded_repo"
+    git -C "$recorded_repo" rev-parse --show-toplevel >/dev/null 2>&1 || die "task repository is not a Git checkout: $recorded_repo"
+    (cd -- "$recorded_repo" && bash "$0" cleanup "$recorded_task" "${cleanup_options[@]}")
+  }
+
+  if [ -n "$cleanup_task_id" ]; then
+    cleanup_one "$cleanup_task_id"
+    exit 0
+  fi
+  if [ "$cleanup_all" = true ]; then
+    repo_root="$(git rev-parse --show-toplevel)" || die '--all must be run from a Git repository'
+    repo_root="$(realpath -e "$repo_root")"
+  fi
+  shopt -s nullglob
+  states=("$state_root"/*.state)
+  shopt -u nullglob
+  for metadata in "${states[@]}"; do
+    [ ! -L "$metadata" ] || die "refusing symlinked path: $metadata"
+    if [ "$cleanup_all" = true ]; then
+      recorded_repo="$(git config --file "$metadata" --get task.repository || true)"
+      [ "$(realpath -e "$recorded_repo" 2>/dev/null || true)" = "$repo_root" ] || continue
+    fi
+    task_key="${metadata##*/}"
+    cleanup_one "${task_key%.state}"
+  done
+  exit 0
+fi
 
 repo_root="$(git rev-parse --show-toplevel)"
 repo_root="$(realpath -e "$repo_root")"

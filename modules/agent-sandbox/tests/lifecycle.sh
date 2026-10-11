@@ -1087,6 +1087,40 @@ cleanup_work() {
   absent "$FAKE_MSB_STATE/$SANDBOX"
 }
 
+cleanup_selectors() {
+  setup task-selector
+  ok start "$TASK"
+  local selected_id="${CLONE##*/}" selected_clone="$CLONE"
+  OUTPUT="$(cd -- "$CASE/home" && bash "$SCRIPT" cleanup --task "$selected_id" --discard 2>&1)" || fail 'cleanup by full task ID outside a repository failed'
+  absent "$selected_clone"
+
+  setup first-all
+  local first_clone="$CLONE"
+  ok start "$TASK"
+  setup second-all
+  local second_clone="$CLONE"
+  ok start "$TASK"
+  ok cleanup --all --discard
+  absent "$first_clone"
+  absent "$second_clone"
+
+  local original_host="$HOST" other_host="$CASE/repositories/other"
+  HOST="$other_host"
+  new_repo "$HOST"
+  setup other-repo
+  local other_clone="$CLONE"
+  ok start "$TASK"
+  HOST="$original_host"
+  setup local-repo
+  local local_clone="$CLONE"
+  ok start "$TASK"
+  ok cleanup --all --discard
+  absent "$local_clone"
+  exists "$other_clone"
+  OUTPUT="$(cd -- "$CASE/home" && bash "$SCRIPT" cleanup --all-tasks --discard 2>&1)" || fail 'cleanup all tasks outside a repository failed'
+  absent "$other_clone"
+}
+
 lifecycle_failure() {
   setup
   ok start "$TASK"
@@ -1666,6 +1700,8 @@ command_help() {
   ok cleanup --help
   contains "$OUTPUT" '--discard'
   contains "$OUTPUT" '--dry-run'
+  contains "$OUTPUT" '--task ID'
+  contains "$OUTPUT" '--all-tasks'
   contains "$OUTPUT" 'Irreversible'
   ok sync --help
   contains "$OUTPUT" 'Divergence'
@@ -1750,7 +1786,7 @@ tests=(roundtrip reuse mount_isolation cache_sharing cache_reuse cache_lazy_crea
   clone_tag_collision squash_merge_options sync_repo_lock
   detached_host dirty_host untracked_host dirty_cleanup untracked_cleanup ignored_cleanup
   unsynced_cleanup other_branch_cleanup ls_failure stop_failure rm_failure
-  symlink_parent symlink_clone symlink_git dry_run partial_initialization
+  symlink_parent symlink_clone symlink_git dry_run cleanup_selectors partial_initialization
   checked_out_destination no_main lock_refusal wrong_branch paused_lifecycle
   inspect_failure start_failure resume_failure transition_verification reflog_cleanup
   stash_cleanup annotated_tag_cleanup signed_push concurrent_setup interactive_lock copilot_secret copilot_existing_sandbox
