@@ -50,6 +50,15 @@ read-only source material.
   sandbox; if the project needs tools the environment lacks, report it to the
   host operator.
 
+## Containers
+
+- `docker` is provided by rootless, daemonless Podman; `docker compose` is
+  provided by podman-compose. Container images, volumes, and networks are local
+  to this disposable sandbox.
+- Do not start a privileged container or use host networking, host PID/IPC
+  namespaces, or bind mounts outside `/workspace`. These are incompatible with
+  the sandbox isolation model.
+
 ## Agent Changes
 
 - Inspect the repository and its existing instructions before editing.
