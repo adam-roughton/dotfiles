@@ -123,15 +123,6 @@ system and is suitable for loading into microsandbox:
 ./make.sh image
 ```
 
-The image includes rootless, daemonless Podman for integration-test
-infrastructure. Its Docker compatibility package provides `docker`, and
-`podman-compose` handles `docker compose`; ordinary Docker and Compose commands
-therefore run without adding a Docker daemon to every sandbox. Container images,
-volumes, and networks live only in that sandbox and are removed with it. Nested
-containers still consume the sandbox's configured CPU, memory, disk, and network
-budget. Privileged containers, host networking, host namespaces, and mounts
-outside `/workspace` are intentionally unsupported.
-
 The `agent-image` flake output is a script that streams the image as an
 uncompressed tar (the format `msb load` reads), so a full copy of the image is
 never stored in `/nix/store`. `make.sh image` writes the stream to a temporary

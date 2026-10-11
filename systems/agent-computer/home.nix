@@ -183,12 +183,6 @@ in {
     postgresql
     mariadb.client
 
-    # Rootless, daemonless OCI runtime. podman-docker supplies `docker`, while
-    # podman-compose implements the Docker Compose commands used by test suites.
-    podman
-    podman-docker
-    podman-compose
-
     # No cloud or Kubernetes CLIs: infra access goes through the infra-agent
     # broker's MCP tools.
   ];
