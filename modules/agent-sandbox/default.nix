@@ -31,9 +31,10 @@ let
       [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@rootDisk@" "@networkProfiles@" "@networkRules@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" "@agentProfile@" "@agentImage@" ]
       (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory cfg.rootDisk (lib.concatStringsSep "," cfg.networkProfiles) (lib.concatStringsSep "," networkRules) cfg.cacheDirectory
         (if cfg.copilotTokenFile == null then "" else cfg.copilotTokenFile)
-        # `toJSON` drops string context. Preserve the flake-source reference
-        # when configuration contains paths such as an instructions file.
-        (builtins.addContextFrom (builtins.toJSON cfg.opencodeConfig) (builtins.toString inputs.self)) opencode
+        # `toJSON` drops string context. Appending an empty substring preserves
+        # the flake-source reference without changing the JSON content.
+        (builtins.toJSON cfg.opencodeConfig + builtins.substring 0 0 (builtins.toString inputs.self))
+        opencode
         (if cfg.agentProfile == null then "" else cfg.agentProfile)
         "${agentImage}/bin/agent-image" ])
       (builtins.readFile ./scripts/code-agent);
