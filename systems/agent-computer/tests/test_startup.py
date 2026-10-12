@@ -25,15 +25,17 @@ class StartupTests(unittest.TestCase):
         self.env.pop("DOCKER_HOST", None)
         self.runtime = self.home / ".local/run/agent-docker"
         self.binary("docker", f'test -e "{self.root}/ready"')
+        self.binary("tun", f'touch "{self.root}/tun-ready"')
         self.binary(
             "dockerd",
-            f'printf "%s\\n" "$@" >> "{self.root}/args"; touch "{self.root}/ready"',
+            f'test -e "{self.root}/tun-ready"; printf "%s\\n" "$@" >> "{self.root}/args"; touch "{self.root}/ready"',
         )
         ca = self.root / "ca.pem"
         ca.write_text("test CA\n")
         text = SCRIPT.read_text().replace("@docker@", str(self.bin / "docker"))
         text = text.replace("@dockerd@", str(self.bin / "dockerd"))
         text = text.replace("@cacert@", str(ca))
+        text = text.replace("@tun@", str(self.bin / "tun"))
         self.script = self.root / "start"
         self.script.write_text("#!/bin/bash\nset -euo pipefail\n" + text)
 
@@ -104,6 +106,13 @@ class StartupTests(unittest.TestCase):
         result = self.run_start()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("daemon.log", result.stderr)
+
+    def test_tun_failure_does_not_launch_daemon(self):
+        self.binary("tun", 'printf "TUN access denied\\n" >&2; exit 1')
+        result = self.run_start()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("TUN access denied", result.stderr)
+        self.assertFalse((self.root / "args").exists())
 
 
 if __name__ == "__main__":

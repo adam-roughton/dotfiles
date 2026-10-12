@@ -32,6 +32,9 @@ if [ -r "$boot_file" ] && [ "$(< "$boot_file")" = "$boot_id" ] && [ -r "$pid_fil
   [[ "$pid" =~ ^[0-9]+$ ]] || pid=""
 fi
 if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+  # Microsandbox mounts devtmpfs at boot, hiding image-time device permissions.
+  # This fixed-purpose helper grants only UID 1000 access to the TUN device.
+  @tun@
   # The runtime directory is sandbox-local, but survives a VM stop/start.
   rm -rf "$XDG_RUNTIME_DIR/rootlesskit"
   rm -f "$XDG_RUNTIME_DIR/docker.sock" "$XDG_RUNTIME_DIR/dockerd.pid"

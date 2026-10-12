@@ -6,12 +6,16 @@ let
     withBtrfs = false;
     withLvm = false;
   };
+  tun = pkgs.runCommandCC "agent-docker-tun" { } ''
+    mkdir -p "$out/bin"
+    $CC -std=c11 -O2 -Wall -Wextra -Werror ${./scripts/agent-docker-tun.c} -o "$out/bin/agent-docker-tun"
+  '';
   start = pkgs.writeShellApplication {
     name = "agent-docker";
     runtimeInputs = [ pkgs.coreutils pkgs.util-linuxMinimal pkgs.gnugrep ];
     text = lib.replaceStrings
-      [ "@docker@" "@dockerd@" "@cacert@" ]
-      [ "${engine}/bin/docker" "${engine}/bin/dockerd-rootless" "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt" ]
+      [ "@docker@" "@dockerd@" "@cacert@" "@tun@" ]
+      [ "${engine}/bin/docker" "${engine}/bin/dockerd-rootless" "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt" "/usr/local/bin/agent-docker-tun" ]
       (builtins.readFile ./scripts/agent-docker);
   };
   client = pkgs.writeShellApplication {
@@ -36,6 +40,7 @@ let
     '';
   };
 in {
+  inherit tun;
   packages = [ start client compose ];
   # Copy these out of the immutable store before setting their setuid bits.
   uidmap = pkgs.shadow;

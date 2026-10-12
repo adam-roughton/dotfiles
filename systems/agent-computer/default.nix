@@ -63,6 +63,7 @@ pkgs.dockerTools.streamLayeredImage {
     # Real copies (not store symlinks) receive ownership/mode in fakeroot.
     cp ${docker.uidmap}/bin/newuidmap usr/local/bin/newuidmap
     cp ${docker.uidmap}/bin/newgidmap usr/local/bin/newgidmap
+    cp ${docker.tun}/bin/agent-docker-tun usr/local/bin/agent-docker-tun
     cp ${./AGENTS.md} AGENTS.md
     cp -rP ${home.config.home-files}/. home/adamr/
     chmod -R u+w home/adamr
@@ -80,6 +81,8 @@ pkgs.dockerTools.streamLayeredImage {
     chown -R 1000:1000 home/adamr workspace
     chown 0:0 usr/local/bin/newuidmap usr/local/bin/newgidmap
     chmod 4755 usr/local/bin/newuidmap usr/local/bin/newgidmap
+    chown 0:0 usr/local/bin/agent-docker-tun
+    chmod 4755 usr/local/bin/agent-docker-tun
   '';
   config = {
     Cmd = [ "${pkgs.zsh}/bin/zsh" ];

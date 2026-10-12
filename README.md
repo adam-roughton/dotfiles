@@ -138,6 +138,11 @@ nested-overlay and FUSE requirements, but copies layers and uses more disk than
 overlay storage; increase `dotfiles.agentSandbox.rootDisk` for larger stacks.
 Docker startup logs are in `$HOME/.local/run/agent-docker/daemon.log`.
 The daemon trusts the sandbox's generated HTTPS interception CA for image pulls.
+Microsandbox recreates `/dev` at boot. Before starting the daemon, a fixed-purpose
+setuid helper gives the `adamr` user ownership of the existing `/dev/net/tun`
+device (10:200) with mode `0600`, allowing RootlessKit's `slirp4netns` networking
+to create a TAP interface. The helper accepts no arguments and cannot modify
+other paths or devices; device permissions are restored lazily after each boot.
 Containers share the VM's CPU, memory, disk and external network budget; per-container
 cgroup limits require delegation that this image does not provide. Use workspace
 bind mounts for project files. Privileged mode and host namespaces are not part
