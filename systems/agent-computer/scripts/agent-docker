@@ -39,7 +39,9 @@ if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
   # Docker 29 otherwise defaults to the containerd image store, bypassing vfs.
   printf '%s\n' '{"features":{"containerd-snapshotter":false}}' > "$XDG_RUNTIME_DIR/daemon.json"
   # The HTTPS interception CA is generated at sandbox startup, not image build.
-  cp @cacert@ "$XDG_RUNTIME_DIR/ca-bundle.crt"
+  # The source CA bundle is store-owned and non-writable; future starts must
+  # be able to replace this runtime copy after a sandbox restart.
+  install -m 600 @cacert@ "$XDG_RUNTIME_DIR/ca-bundle.crt"
   if [ -r /.msb/tls/ca.pem ]; then
     printf '\n' >> "$XDG_RUNTIME_DIR/ca-bundle.crt"
     cat /.msb/tls/ca.pem >> "$XDG_RUNTIME_DIR/ca-bundle.crt"

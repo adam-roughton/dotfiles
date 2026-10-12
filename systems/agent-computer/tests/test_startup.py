@@ -89,6 +89,16 @@ class StartupTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse((self.runtime / "rootlesskit/stale").exists())
 
+    def test_restart_replaces_existing_ca_bundle(self):
+        self.runtime.mkdir(parents=True)
+        (self.runtime / "ca-bundle.crt").write_text("old CA\n")
+        (self.runtime / "ca-bundle.crt").chmod(0o500)
+        result = self.run_start()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((self.runtime / "ca-bundle.crt").read_text().startswith("test CA\n"))
+        self.assertNotIn("old CA", (self.runtime / "ca-bundle.crt").read_text())
+        self.assertEqual((self.runtime / "ca-bundle.crt").stat().st_mode & 0o777, 0o600)
+
     def test_failed_daemon_reports_log(self):
         self.binary("dockerd", "exit 1")
         result = self.run_start()
