@@ -3,6 +3,7 @@ let
   # One headless JDK shared by every JVM tool. Each tool otherwise wraps its own full
   # (GTK/X11) JDK, so the image would carry several JDKs.
   jdk = pkgs.jdk17_headless;
+  docker = import ./docker.nix { inherit pkgs lib; };
 
   # Playwright MCP with Chromium only (the default browser set also ships
   # Firefox and WebKit). With the nixpkgs default browser (`chromium`, the
@@ -185,7 +186,7 @@ in {
 
     # No cloud or Kubernetes CLIs: infra access goes through the infra-agent
     # broker's MCP tools.
-  ];
+  ] ++ docker.packages;
 
   home.file."AGENTS.md".source = ./AGENTS.md;
 

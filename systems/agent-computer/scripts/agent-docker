@@ -1,0 +1,74 @@
+# Included by writeShellApplication; all daemon startup output goes to stderr.
+action="${1:-start}"
+if [ "$action" != start ]; then
+  printf 'Usage: agent-docker [start]\n' >&2
+  exit 2
+fi
+
+export PATH="/usr/local/bin:$PATH"
+export XDG_RUNTIME_DIR="${HOME:?}/.local/run/agent-docker"
+export DOCKER_HOST="${DOCKER_HOST:-unix://$XDG_RUNTIME_DIR/docker.sock}"
+if [ "$DOCKER_HOST" != "unix://$XDG_RUNTIME_DIR/docker.sock" ]; then
+  # Respect explicitly selected remote engines; never start a local one for them.
+  exit 0
+fi
+unset DOCKER_CONTEXT
+umask 077
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+
+# Bound both lock acquisition and individual API probes.
+exec 9>"$XDG_RUNTIME_DIR/start.lock"
+flock -w 90 9 || { printf 'agent-docker: timed out waiting for startup lock\n' >&2; exit 1; }
+ready() { timeout 2 @docker@ info >/dev/null 2>&1; }
+if ready; then exit 0; fi
+
+boot_id=$(< /proc/sys/kernel/random/boot_id)
+pid_file="$XDG_RUNTIME_DIR/launcher.pid"
+boot_file="$XDG_RUNTIME_DIR/boot-id"
+pid=""
+if [ -r "$boot_file" ] && [ "$(< "$boot_file")" = "$boot_id" ] && [ -r "$pid_file" ]; then
+  pid=$(< "$pid_file")
+  [[ "$pid" =~ ^[0-9]+$ ]] || pid=""
+fi
+if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
+  # The runtime directory is sandbox-local, but survives a VM stop/start.
+  rm -rf "$XDG_RUNTIME_DIR/rootlesskit"
+  rm -f "$XDG_RUNTIME_DIR/docker.sock" "$XDG_RUNTIME_DIR/dockerd.pid"
+  mkdir -p "$HOME/.local/share/agent-docker"
+  # Docker 29 otherwise defaults to the containerd image store, bypassing vfs.
+  printf '%s\n' '{"features":{"containerd-snapshotter":false}}' > "$XDG_RUNTIME_DIR/daemon.json"
+  # The HTTPS interception CA is generated at sandbox startup, not image build.
+  cp @cacert@ "$XDG_RUNTIME_DIR/ca-bundle.crt"
+  if [ -r /.msb/tls/ca.pem ]; then
+    printf '\n' >> "$XDG_RUNTIME_DIR/ca-bundle.crt"
+    cat /.msb/tls/ca.pem >> "$XDG_RUNTIME_DIR/ca-bundle.crt"
+  fi
+  export SSL_CERT_FILE="$XDG_RUNTIME_DIR/ca-bundle.crt"
+  export DOCKERD_ROOTLESS_ROOTLESSKIT_STATE_DIR="$XDG_RUNTIME_DIR/rootlesskit"
+  export DOCKERD_ROOTLESS_ROOTLESSKIT_NET=slirp4netns
+  export DOCKERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=builtin
+  # No systemd user manager or delegated cgroups in the microsandbox image.
+  # VFS works on its overlay root without /dev/fuse or nested-overlay support.
+  nohup setsid @dockerd@ \
+    --config-file="$XDG_RUNTIME_DIR/daemon.json" \
+    --host="$DOCKER_HOST" \
+    --data-root="$HOME/.local/share/agent-docker" \
+    --exec-root="$XDG_RUNTIME_DIR/exec" \
+    --pidfile="$XDG_RUNTIME_DIR/dockerd.pid" \
+    --storage-driver=vfs \
+    --exec-opt=native.cgroupdriver=cgroupfs \
+    </dev/null >"$XDG_RUNTIME_DIR/daemon.log" 2>&1 9>&- &
+  pid=$!
+  printf '%s\n' "$pid" > "$pid_file"
+  printf '%s\n' "$boot_id" > "$boot_file"
+fi
+
+deadline=$((SECONDS + 60))
+while ((SECONDS < deadline)); do
+  if ready; then exit 0; fi
+  if ! kill -0 "$pid" 2>/dev/null; then break; fi
+  sleep 1
+done
+printf 'agent-docker: daemon failed to become ready; see %s/daemon.log\n' "$XDG_RUNTIME_DIR" >&2
+exit 1

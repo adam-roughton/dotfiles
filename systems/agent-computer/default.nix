@@ -19,6 +19,7 @@
 }:
 let
   inherit (pkgs) lib;
+  docker = import ./docker.nix { inherit pkgs lib; };
   home = inputs.home-manager.lib.homeManagerConfiguration {
     inherit pkgs;
     modules = [ ./home.nix ];
@@ -53,9 +54,15 @@ pkgs.dockerTools.streamLayeredImage {
   # workstations. Activation hooks are not run. dockerTools does not provide
   # account databases, so create the sandbox user's NSS entries explicitly.
   extraCommands = ''
-    mkdir -p etc home/adamr workspace
+    mkdir -p etc home/adamr workspace usr/local/bin
     printf 'root:x:0:0:root:/root:${pkgs.zsh}/bin/zsh\nadamr:x:1000:1000:Adam Roughton:/home/adamr:${pkgs.zsh}/bin/zsh\n' > etc/passwd
     printf 'root:x:0:\nadamr:x:1000:\n' > etc/group
+    printf 'adamr:100000:65536\n' > etc/subuid
+    printf 'adamr:100000:65536\n' > etc/subgid
+    # Home Manager activation and NixOS setuid wrappers are not run here.
+    # Real copies (not store symlinks) receive ownership/mode in fakeroot.
+    cp ${docker.uidmap}/bin/newuidmap usr/local/bin/newuidmap
+    cp ${docker.uidmap}/bin/newgidmap usr/local/bin/newgidmap
     cp ${./AGENTS.md} AGENTS.md
     cp -rP ${home.config.home-files}/. home/adamr/
     chmod -R u+w home/adamr
@@ -71,6 +78,8 @@ pkgs.dockerTools.streamLayeredImage {
   # must happen under fakeroot, which also records them in the layer tarball.
   fakeRootCommands = ''
     chown -R 1000:1000 home/adamr workspace
+    chown 0:0 usr/local/bin/newuidmap usr/local/bin/newgidmap
+    chmod 4755 usr/local/bin/newuidmap usr/local/bin/newgidmap
   '';
   config = {
     Cmd = [ "${pkgs.zsh}/bin/zsh" ];
@@ -81,6 +90,7 @@ pkgs.dockerTools.streamLayeredImage {
       # The trailing empty entry keeps ncurses' built-in database as a fallback.
       "TERMINFO_DIRS=/share/terminfo:"
       "USER=adamr"
+      "DOCKER_HOST=unix:///home/adamr/.local/run/agent-docker/docker.sock"
     ];
     User = "1000:1000";
     WorkingDir = "/workspace";

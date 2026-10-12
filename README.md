@@ -123,6 +123,35 @@ system and is suitable for loading into microsandbox:
 ./make.sh image
 ```
 
+The image includes real rootless Docker with Compose v2 and Buildx for
+integration tests. Both `docker compose` and `docker-compose` start a
+sandbox-local daemon on first use, including when invoked by `pytest-docker`.
+Published ports are reachable at `127.0.0.1` inside the sandbox. Docker SDK
+clients use the image's `DOCKER_HOST`; run `agent-docker start` before using
+them directly. Startup is serialized and waits for the engine to become ready.
+An explicitly overridden `DOCKER_HOST` uses that engine instead.
+
+No systemd service is needed. The daemon stays running until the sandbox is
+stopped; it restarts lazily afterward. Images and named volumes persist across
+sandbox stop/start and disappear when the sandbox is removed. VFS storage avoids
+nested-overlay and FUSE requirements, but copies layers and uses more disk than
+overlay storage; increase `dotfiles.agentSandbox.rootDisk` for larger stacks.
+Docker startup logs are in `$HOME/.local/run/agent-docker/daemon.log`.
+The daemon trusts the sandbox's generated HTTPS interception CA for image pulls.
+Containers share the VM's CPU, memory, disk and external network budget; per-container
+cgroup limits require delegation that this image does not provide. Use workspace
+bind mounts for project files. Privileged mode and host namespaces are not part
+of the supported integration-test workflow.
+
+After rebuilding the image, verify inside a new sandbox with:
+
+```sh
+uv run --with pytest --with 'pytest-docker>=3.2' pytest -q systems/agent-computer/tests/docker/test_compose.py
+```
+
+The test builds an image, waits for a healthy service, discovers its dynamically
+published port, connects over loopback, and checks Compose container/volume cleanup.
+
 The `agent-image` flake output is a script that streams the image as an
 uncompressed tar (the format `msb load` reads), so a full copy of the image is
 never stored in `/nix/store`. `make.sh image` writes the stream to a temporary

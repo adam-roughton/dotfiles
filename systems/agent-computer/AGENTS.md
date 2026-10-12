@@ -50,6 +50,20 @@ read-only source material.
   sandbox; if the project needs tools the environment lacks, report it to the
   host operator.
 
+## Containers
+
+- Real rootless Docker and Compose v2 are available as `docker compose` and
+  `docker-compose`. Either CLI starts the sandbox-local daemon on first use.
+- Before using a Docker SDK directly, run `agent-docker start`. `DOCKER_HOST`
+  already points to the local Unix socket. Published ports are reachable at
+  `127.0.0.1` from tests running in the sandbox.
+- Images and named volumes live on the disposable sandbox disk, not `/cache`.
+  VFS storage copies layers, so allow extra disk space for large test stacks.
+- Use workspace bind mounts for project files. Do not use privileged mode,
+  host namespaces, or mounts of host-provided source and cache directories.
+- If startup fails, inspect `$HOME/.local/run/agent-docker/daemon.log` and
+  report the failure. Do not change sandbox privileges or mount policies.
+
 ## Agent Changes
 
 - Inspect the repository and its existing instructions before editing.
