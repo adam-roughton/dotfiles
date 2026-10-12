@@ -15,7 +15,15 @@ let
   # can use it without the Nix store, but a dynamic loader would still be
   # looked up inside each container; hence a static build of the one target.
   emulateAmd64 = !pkgs.stdenv.hostPlatform.isx86_64;
-  qemu = pkgs.pkgsStatic.qemu-user.override { hostCpuTargets = [ "x86_64-linux-user" ]; };
+  # libxcrypt 4.5.2's checks error in the aarch64 musl static build. Apply the
+  # workaround to QEMU's static package set so transitive dependencies (glib
+  # via util-linux-minimal) also use it, without affecting the image's tools.
+  qemuPkgs = pkgs.pkgsStatic.extend (_final: prev: {
+    libxcrypt = prev.libxcrypt.overrideAttrs (_old: {
+      doCheck = false;
+    });
+  });
+  qemu = qemuPkgs.qemu-user.override { hostCpuTargets = [ "x86_64-linux-user" ]; };
   # The interpreter path is compiled in, so the helper's store reference also
   # puts QEMU into the image closure.
   binfmt = if !emulateAmd64 then null else pkgs.runCommandCC "agent-docker-binfmt" { } ''
