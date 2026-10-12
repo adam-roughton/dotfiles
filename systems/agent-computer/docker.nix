@@ -18,10 +18,14 @@ let
   # libxcrypt 4.5.2's checks error in the aarch64 musl static build. Apply the
   # workaround to QEMU's static package set so transitive dependencies (glib
   # via util-linux-minimal) also use it, without affecting the image's tools.
+  # Overlays also run in the native buildPackages/bootstrap stages. Leave
+  # those untouched so this does not invalidate the cached GCC/glibc toolchain.
   qemuPkgs = pkgs.pkgsStatic.extend (_final: prev: {
-    libxcrypt = prev.libxcrypt.overrideAttrs (_old: {
-      doCheck = false;
-    });
+    libxcrypt = if prev.stdenv.hostPlatform.isStatic then
+      prev.libxcrypt.overrideAttrs (_old: {
+        doCheck = false;
+      })
+    else prev.libxcrypt;
   });
   qemu = qemuPkgs.qemu-user.override { hostCpuTargets = [ "x86_64-linux-user" ]; };
   # The interpreter path is compiled in, so the helper's store reference also
