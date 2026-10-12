@@ -538,6 +538,9 @@ if [ "$action" = setup ] || [ "$action" = start ]; then
   upstream_locked=false
   if [ ! -e "$clone" ]; then
     git clone --no-hardlinks --branch "snapshot-$source_commit" "$bare_repo" "$clone"
+    # The bare snapshot stores gitlinks but not submodule working trees. Fetch
+    # them on the host so the sandbox receives the complete project tree.
+    git -C "$clone" submodule update --init --recursive
   fi
   require_clone
   if [ "$(git config --file "$metadata" --get task.ready || true)" != true ]; then

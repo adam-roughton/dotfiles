@@ -718,10 +718,11 @@ not transferred. The command never auto-stashes or commits. Commit or stash
 changes first. Reusing a task keeps its original agent clone and source snapshot;
 new host commits are not automatically applied inside an existing clone.
 
-The clone is created on the host with `git clone --no-hardlinks`. Only that
-task's clone is mounted read-write, at `/workspace`. The bare upstream is
-mounted read-only at `/mnt/upstream.git`; the rest of the workspace root,
-including task metadata, is not exposed to the sandbox.
+The clone is created on the host with `git clone --no-hardlinks`, then its
+submodules are initialized recursively. Only that task's clone is mounted
+read-write, at `/workspace`. The bare upstream is mounted read-only at
+`/mnt/upstream.git`; the rest of the workspace root, including task metadata,
+is not exposed to the sandbox.
 Host Git author identity is copied into the clone, but credentials and signing
 keys are not. Commit signing is disabled locally in the clone.
 
@@ -775,7 +776,9 @@ If the histories diverge, sync stops without modifying the task branch and
 prints the incoming ref where the agent commits were preserved. Merge or rebase
 manually; no force update or automatic conflict resolution is performed.
 Incoming refs are retained as recovery points. Nothing is published to a network
-remote. Git LFS objects and submodule material are not automatically transferred.
+remote. Git LFS objects and submodule commits are not automatically transferred
+by `sync`; new task clones initialize the submodule revisions in their source
+snapshot.
 
 Review the task branch against `main` before merging or publishing:
 

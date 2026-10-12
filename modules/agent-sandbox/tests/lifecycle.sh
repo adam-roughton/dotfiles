@@ -17,7 +17,7 @@ contains() { [[ "$1" == *"$2"* ]] || fail "missing [$2] in [$1]"; }
 exists() { [ -e "$1" ] || fail "missing path: $1"; }
 absent() { if [ -e "$1" ] || [ -L "$1" ]; then fail "unexpected path: $1"; fi; }
 
-agent() { (cd -- "$HOST" && bash "$SCRIPT" "$@"); }
+agent() { (cd -- "$HOST" && GIT_ALLOW_PROTOCOL=file bash "$SCRIPT" "$@"); }
 ok() { OUTPUT="$(agent "$@" 2>&1)" || fail "command failed: $*"; }
 ok_attach() {
   local before
@@ -181,6 +181,21 @@ roundtrip() {
   absent "$FAKE_MSB_STATE/$SANDBOX"
   exists "$UPSTREAM"
   git -C "$HOST" show-ref --verify --quiet "refs/heads/$BRANCH"
+}
+
+submodules() {
+  local host="$HOST" private_source="$CASE/repositories/private"
+  new_repo "$private_source"
+  HOST="$host"
+  printf 'private contents\n' > "$private_source/secret-config"
+  git -C "$private_source" add secret-config
+  git -C "$private_source" commit -qm 'add private contents'
+  git -C "$HOST" -c protocol.file.allow=always submodule add -q "$private_source" private
+  git -C "$HOST" commit -qm 'add private submodule'
+
+  setup
+  equal "$(< "$CLONE/private/secret-config")" 'private contents'
+  equal "$(git -C "$CLONE/private" rev-parse HEAD)" "$(git -C "$private_source" rev-parse HEAD)"
 }
 
 reuse() {
@@ -1772,7 +1787,7 @@ fi
 command -v jq >/dev/null 2>&1 || fail 'jq is required'
 ROOT="$(mktemp -d "${TMPDIR:-/tmp}/code-agent-lifecycle.XXXXXXXX")"
 trap 'rm -rf -- "$ROOT"' EXIT
-tests=(roundtrip reuse mount_isolation cache_sharing cache_reuse cache_lazy_creation
+tests=(roundtrip submodules reuse mount_isolation cache_sharing cache_reuse cache_lazy_creation
   cache_missing_resume cache_start_failure_ls cache_start_failure_create
   cache_start_failure_inspect cache_start_failure_exec
   cache_overlap_repo_equal cache_overlap_repo_descendant cache_overlap_repo_ancestor
