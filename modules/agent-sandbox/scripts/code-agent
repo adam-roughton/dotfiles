@@ -448,6 +448,7 @@ sync_submodules() {
   mkdir -p "$bundles"
   : > "$manifest"
   # Parent Git history stores gitlinks, not the objects needed for their target revisions.
+  # shellcheck disable=SC2016 # Git expands this body in each submodule.
   CODE_AGENT_SUBMODULE_BUNDLES="$bundles" CODE_AGENT_SUBMODULE_MANIFEST="$manifest" \
     git -C "$clone" submodule foreach --recursive '
       bundle="$CODE_AGENT_SUBMODULE_BUNDLES/$sm_path.bundle"
@@ -578,6 +579,7 @@ if [ "$action" = setup ] || [ "$action" = start ]; then
     git -C "$clone" config user.email "$(git -C "$repo_root" config user.email || printf 'code-agent@localhost')"
     git -C "$clone" config commit.gpgsign false
     git -C "$clone" config tag.gpgsign false
+    # shellcheck disable=SC2016 # Git expands this body in each submodule.
     CODE_AGENT_USER_NAME="$(git -C "$clone" config user.name)" \
       CODE_AGENT_USER_EMAIL="$(git -C "$clone" config user.email)" \
       git -C "$clone" submodule foreach --recursive '
