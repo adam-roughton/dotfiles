@@ -127,7 +127,7 @@ command_help() {
       ;;
   esac
   if [ "$command" = sync ]; then
-    printf '%s\n' 'The agent tree must have no tracked or untracked changes and be on the task branch. Another worktree owning' 'the target branch blocks the update. Ignored files are retained. LFS/submodule payloads are not transferred.'
+    printf '%s\n' 'The agent tree must have no tracked or untracked changes and be on the task branch. Another worktree owning' 'the target branch blocks the update. Ignored files are retained. Committed recursive submodule contents transfer; LFS payloads do not.'
   elif [ "$command" = cleanup ]; then
     printf '\n%s\n' \
       'Options:' \
@@ -441,6 +441,27 @@ require_discardable() {
   status="$(git -C "$clone" status --porcelain --untracked-files=all --ignored)" || die 'cannot inspect workspace; refusing to continue'
   [ -z "$status" ] || die 'workspace has modified, untracked, or ignored files; preserve them or use cleanup --discard'
 }
+sync_submodules() {
+  local path bundle
+  local bundles="$scratch/submodules"
+  local manifest="$scratch/submodules.paths"
+  mkdir -p "$bundles"
+  : > "$manifest"
+  # Parent Git history stores gitlinks, not the objects needed for their target revisions.
+  CODE_AGENT_SUBMODULE_BUNDLES="$bundles" CODE_AGENT_SUBMODULE_MANIFEST="$manifest" \
+    git -C "$clone" submodule foreach --recursive '
+      bundle="$CODE_AGENT_SUBMODULE_BUNDLES/$sm_path.bundle"
+      mkdir -p "$(dirname -- "$bundle")"
+      git bundle create "$bundle" HEAD
+      printf "%s\\0" "$sm_path" >> "$CODE_AGENT_SUBMODULE_MANIFEST"
+    ' >/dev/null
+  while IFS= read -r -d '' path; do
+    bundle="$bundles/$path.bundle"
+    git -C "$repo_root/$path" rev-parse --is-inside-work-tree >/dev/null 2>&1 || \
+      die "host submodule is not initialized: $path"
+    git -C "$repo_root/$path" fetch "$bundle" HEAD
+  done < "$manifest"
+}
 sandbox_exists() {
   local names name
   names="$(msb ls -q)" || die 'cannot list microsandboxes; refusing to continue'
@@ -557,6 +578,14 @@ if [ "$action" = setup ] || [ "$action" = start ]; then
     git -C "$clone" config user.email "$(git -C "$repo_root" config user.email || printf 'code-agent@localhost')"
     git -C "$clone" config commit.gpgsign false
     git -C "$clone" config tag.gpgsign false
+    CODE_AGENT_USER_NAME="$(git -C "$clone" config user.name)" \
+      CODE_AGENT_USER_EMAIL="$(git -C "$clone" config user.email)" \
+      git -C "$clone" submodule foreach --recursive '
+      git config user.name "$CODE_AGENT_USER_NAME"
+      git config user.email "$CODE_AGENT_USER_EMAIL"
+      git config commit.gpgsign false
+      git config tag.gpgsign false
+    ' >/dev/null
     git config --file "$metadata" task.ready true
   fi
 fi
@@ -666,6 +695,7 @@ case "$action" in
     require_clean
     [ "$(git -C "$clone" symbolic-ref --quiet HEAD)" = "refs/heads/$branch" ] || die 'workspace is not on the expected task branch'
     scratch="$(mktemp -d "${TMPDIR:-/tmp}/code-agent.XXXXXXXX")"
+    sync_submodules
     git -C "$clone" bundle create "$scratch/result.bundle" HEAD
     git -C "$repo_root" bundle verify "$scratch/result.bundle" >/dev/null
     incoming_commit="$(git -C "$clone" rev-parse HEAD)"
@@ -677,6 +707,7 @@ case "$action" in
     require_host_clean
     if [ "$(git -C "$repo_root" symbolic-ref --quiet HEAD)" = "refs/heads/$branch" ]; then
       git -C "$repo_root" merge --ff-only --no-squash --no-overwrite-ignore "$incoming_ref"
+      git -C "$repo_root" submodule update --init --recursive --no-fetch
     else
       # Git refuses updates to a branch checked out in another worktree.
       git -C "$repo_root" fetch "$scratch/result.bundle" "HEAD:refs/heads/$branch"

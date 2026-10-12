@@ -776,9 +776,10 @@ If the histories diverge, sync stops without modifying the task branch and
 prints the incoming ref where the agent commits were preserved. Merge or rebase
 manually; no force update or automatic conflict resolution is performed.
 Incoming refs are retained as recovery points. Nothing is published to a network
-remote. Git LFS objects and submodule commits are not automatically transferred
-by `sync`; new task clones initialize the submodule revisions in their source
-snapshot.
+remote. `sync` transfers committed recursive submodule Git objects and updates
+their host worktrees when the task branch is checked out. Git LFS objects are
+not automatically transferred. Publishing the resulting work still requires
+pushing each submodule commit to its own remote.
 
 Review the task branch against `main` before merging or publishing:
 

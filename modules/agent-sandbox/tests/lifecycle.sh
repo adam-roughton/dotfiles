@@ -198,6 +198,38 @@ submodules() {
   equal "$(git -C "$CLONE/private" rev-parse HEAD)" "$(git -C "$private_source" rev-parse HEAD)"
 }
 
+submodule_sync() {
+  local host="$HOST" private_source="$CASE/repositories/private"
+  new_repo "$private_source"
+  HOST="$host"
+  printf 'original contents\n' > "$private_source/secret-config"
+  git -C "$private_source" add secret-config
+  git -C "$private_source" commit -qm 'add private contents'
+  git -C "$HOST" -c protocol.file.allow=always submodule add -q "$private_source" private
+  git -C "$HOST" commit -qm 'add private submodule'
+
+  setup
+  printf 'synced contents\n' > "$CLONE/private/secret-config"
+  git -C "$CLONE/private" commit -am 'update private contents'
+  git -C "$CLONE" add private
+  git -C "$CLONE" commit -qm 'update private gitlink'
+  ok sync "$TASK"
+  equal "$(< "$HOST/private/secret-config")" 'synced contents'
+  equal "$(git -C "$HOST/private" rev-parse HEAD)" "$(git -C "$CLONE/private" rev-parse HEAD)"
+}
+
+dirty_submodule_sync() {
+  local host="$HOST" private_source="$CASE/repositories/private"
+  new_repo "$private_source"
+  HOST="$host"
+  git -C "$HOST" -c protocol.file.allow=always submodule add -q "$private_source" private
+  git -C "$HOST" commit -qm 'add private submodule'
+
+  setup
+  printf 'uncommitted submodule work\n' >> "$CLONE/private/tracked"
+  reject 'workspace has modified or untracked files' sync "$TASK"
+}
+
 reuse() {
   setup
   ok start "$TASK"
@@ -1787,7 +1819,7 @@ fi
 command -v jq >/dev/null 2>&1 || fail 'jq is required'
 ROOT="$(mktemp -d "${TMPDIR:-/tmp}/code-agent-lifecycle.XXXXXXXX")"
 trap 'rm -rf -- "$ROOT"' EXIT
-tests=(roundtrip submodules reuse mount_isolation cache_sharing cache_reuse cache_lazy_creation
+tests=(roundtrip submodules submodule_sync dirty_submodule_sync reuse mount_isolation cache_sharing cache_reuse cache_lazy_creation
   cache_missing_resume cache_start_failure_ls cache_start_failure_create
   cache_start_failure_inspect cache_start_failure_exec
   cache_overlap_repo_equal cache_overlap_repo_descendant cache_overlap_repo_ancestor
