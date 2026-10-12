@@ -15,19 +15,20 @@ let
   # can use it without the Nix store, but a dynamic loader would still be
   # looked up inside each container; hence a static build of the one target.
   emulateAmd64 = !pkgs.stdenv.hostPlatform.isx86_64;
-  # libxcrypt 4.5.2's checks error in the aarch64 musl static build. Apply the
-  # workaround to QEMU's static package set so transitive dependencies (glib
-  # via util-linux-minimal) also use it, without affecting the image's tools.
-  # Overlays also run in the native buildPackages/bootstrap stages. Leave
-  # those untouched so this does not invalidate the cached GCC/glibc toolchain.
-  qemuPkgs = pkgs.pkgsStatic.extend (_final: prev: {
-    libxcrypt = if prev.stdenv.hostPlatform.isStatic then
-      prev.libxcrypt.overrideAttrs (_old: {
-        doCheck = false;
-      })
-    else prev.libxcrypt;
-  });
-  qemu = qemuPkgs.qemu-user.override { hostCpuTargets = [ "x86_64-linux-user" ]; };
+  # Nixpkgs' aarch64-musl QEMU 11.1.1 crashes before main on the microsandbox
+  # kernel. Use the upstream static interpreter which is tested by binfmt.
+  qemu = pkgs.stdenvNoCC.mkDerivation {
+    pname = "agent-qemu-x86_64";
+    version = "10.2.3-68";
+    src = pkgs.fetchurl {
+      url = "https://github.com/tonistiigi/binfmt/releases/download/deploy/v10.2.3-68/qemu_v10.2.3_linux-arm64.tar.gz";
+      hash = "sha256-yhn40gK5d5BPcPpkZLXvlDl0CVHUD4lzDS8pgfhTv6o=";
+    };
+    sourceRoot = ".";
+    installPhase = ''
+      install -Dm755 qemu-x86_64 "$out/bin/qemu-x86_64"
+    '';
+  };
   # The interpreter path is compiled in, so the helper's store reference also
   # puts QEMU into the image closure.
   binfmt = if !emulateAmd64 then null else pkgs.runCommandCC "agent-docker-binfmt" { } ''
