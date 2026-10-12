@@ -10,12 +10,32 @@ let
     mkdir -p "$out/bin"
     $CC -std=c11 -O2 -Wall -Wextra -Werror ${./scripts/agent-docker-tun.c} -o "$out/bin/agent-docker-tun"
   '';
+  # Run linux/amd64 images under QEMU user-mode emulation on other hosts.
+  # binfmt_misc's F flag opens the interpreter at registration so containers
+  # can use it without the Nix store, but a dynamic loader would still be
+  # looked up inside each container; hence a static build of the one target.
+  emulateAmd64 = !pkgs.stdenv.hostPlatform.isx86_64;
+  qemu = pkgs.pkgsStatic.qemu-user.override { hostCpuTargets = [ "x86_64-linux-user" ]; };
+  # The interpreter path is compiled in, so the helper's store reference also
+  # puts QEMU into the image closure.
+  binfmt = if !emulateAmd64 then null else pkgs.runCommandCC "agent-docker-binfmt" { } ''
+    mkdir -p "$out/bin"
+    $CC -std=c11 -O2 -Wall -Wextra -Werror \
+      -DAGENT_QEMU_X86_64='"${qemu}/bin/qemu-x86_64"' \
+      ${./scripts/agent-docker-binfmt.c} -o "$out/bin/agent-docker-binfmt"
+  '';
   start = pkgs.writeShellApplication {
     name = "agent-docker";
     runtimeInputs = [ pkgs.coreutils pkgs.util-linuxMinimal pkgs.gnugrep ];
     text = lib.replaceStrings
-      [ "@docker@" "@dockerd@" "@cacert@" "@tun@" ]
-      [ "${engine}/bin/docker" "${engine}/bin/dockerd-rootless" "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt" "/usr/local/bin/agent-docker-tun" ]
+      [ "@docker@" "@dockerd@" "@cacert@" "@tun@" "@binfmt@" ]
+      [
+        "${engine}/bin/docker"
+        "${engine}/bin/dockerd-rootless"
+        "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+        "/usr/local/bin/agent-docker-tun"
+        (if binfmt == null then "true" else "/usr/local/bin/agent-docker-binfmt")
+      ]
       (builtins.readFile ./scripts/agent-docker);
   };
   client = pkgs.writeShellApplication {
@@ -40,7 +60,8 @@ let
     '';
   };
 in {
-  inherit tun;
+  # binfmt is null when the image's platform runs amd64 natively.
+  inherit tun binfmt;
   packages = [ start client compose ];
   # Copy these out of the immutable store before setting their setuid bits.
   uidmap = pkgs.shadow;

@@ -143,6 +143,15 @@ setuid helper gives the `adamr` user ownership of the existing `/dev/net/tun`
 device (10:200) with mode `0600`, allowing RootlessKit's `slirp4netns` networking
 to create a TAP interface. The helper accepts no arguments and cannot modify
 other paths or devices; device permissions are restored lazily after each boot.
+On non-amd64 hosts (such as Apple silicon), `linux/amd64` images run under QEMU
+user-mode emulation: pass `--platform linux/amd64` to `docker run`/`docker build`
+or set `platform: linux/amd64` in Compose. A second fixed-purpose setuid helper
+mounts `binfmt_misc` and registers a static, x86_64-only `qemu-x86_64` from the
+Nix store with flags `POCF` (`C` lets setuid programs in amd64 images work), before the daemon
+starts so BuildKit lists the platform. Registrations do not survive a VM
+restart and are re-added lazily, like the TUN permissions. If registration
+fails, startup warns and continues with native images only. Emulated containers
+are considerably slower than native ones.
 Containers share the VM's CPU, memory, disk and external network budget; per-container
 cgroup limits require delegation that this image does not provide. Use workspace
 bind mounts for project files. Privileged mode and host namespaces are not part
@@ -156,6 +165,7 @@ uv run --with pytest --with 'pytest-docker>=3.2' pytest -q systems/agent-compute
 
 The test builds an image, waits for a healthy service, discovers its dynamically
 published port, connects over loopback, and checks Compose container/volume cleanup.
+It also builds and runs the image for `linux/amd64` and checks it reports `x86_64`.
 
 The `agent-image` flake output is a script that streams the image as an
 uncompressed tar (the format `msb load` reads), so a full copy of the image is

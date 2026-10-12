@@ -26,3 +26,22 @@ def test_compose_infrastructure(command, docker_ip):
             text=True,
         )
         assert not remaining.strip(), f"Compose leaked {resource}: {remaining}"
+
+
+def test_amd64_build_and_run():
+    """linux/amd64 builds and containers run natively or under QEMU."""
+    tag = f"agent-smoke-amd64:{os.getpid()}"
+    context = str(Path(__file__).parent)
+    subprocess.run(
+        ["docker", "build", "--quiet", "--platform", "linux/amd64", "--tag", tag, context],
+        check=True, stdout=subprocess.DEVNULL,
+    )
+    try:
+        machine = subprocess.check_output(
+            ["docker", "run", "--rm", "--platform", "linux/amd64", tag,
+             "python", "-c", "import platform; print(platform.machine())"],
+            text=True,
+        )
+        assert machine.strip() == "x86_64"
+    finally:
+        subprocess.run(["docker", "image", "rm", tag], check=False, stdout=subprocess.DEVNULL)

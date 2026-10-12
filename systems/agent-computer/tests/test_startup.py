@@ -26,9 +26,11 @@ class StartupTests(unittest.TestCase):
         self.runtime = self.home / ".local/run/agent-docker"
         self.binary("docker", f'test -e "{self.root}/ready"')
         self.binary("tun", f'touch "{self.root}/tun-ready"')
+        self.binary("binfmt", f'touch "{self.root}/binfmt-ready"')
         self.binary(
             "dockerd",
-            f'test -e "{self.root}/tun-ready"; printf "%s\\n" "$@" >> "{self.root}/args"; touch "{self.root}/ready"',
+            f'test -e "{self.root}/tun-ready"; test -e "{self.root}/binfmt-ready"; '
+            f'printf "%s\\n" "$@" >> "{self.root}/args"; touch "{self.root}/ready"',
         )
         ca = self.root / "ca.pem"
         ca.write_text("test CA\n")
@@ -36,6 +38,7 @@ class StartupTests(unittest.TestCase):
         text = text.replace("@dockerd@", str(self.bin / "dockerd"))
         text = text.replace("@cacert@", str(ca))
         text = text.replace("@tun@", str(self.bin / "tun"))
+        text = text.replace("@binfmt@", str(self.bin / "binfmt"))
         self.script = self.root / "start"
         self.script.write_text("#!/bin/bash\nset -euo pipefail\n" + text)
 
@@ -113,6 +116,18 @@ class StartupTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("TUN access denied", result.stderr)
         self.assertFalse((self.root / "args").exists())
+
+    def test_binfmt_failure_warns_and_starts_daemon(self):
+        self.binary("binfmt", 'printf "binfmt denied\\n" >&2; exit 1')
+        self.binary(
+            "dockerd",
+            f'printf "%s\\n" "$@" >> "{self.root}/args"; touch "{self.root}/ready"',
+        )
+        result = self.run_start()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("amd64 emulation unavailable", result.stderr)
+        self.assertTrue((self.root / "args").exists())
 
 
 if __name__ == "__main__":

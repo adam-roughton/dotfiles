@@ -35,6 +35,12 @@ if [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null; then
   # Microsandbox mounts devtmpfs at boot, hiding image-time device permissions.
   # This fixed-purpose helper grants only UID 1000 access to the TUN device.
   @tun@
+  # Register QEMU for linux/amd64 images (a no-op on amd64 hosts). Do this
+  # before dockerd so BuildKit detects the platform. Native images still work
+  # without it, so a failure only warns.
+  if ! @binfmt@; then
+    printf 'agent-docker: amd64 emulation unavailable; linux/amd64 images will not run\n' >&2
+  fi
   # The runtime directory is sandbox-local, but survives a VM stop/start.
   rm -rf "$XDG_RUNTIME_DIR/rootlesskit"
   rm -f "$XDG_RUNTIME_DIR/docker.sock" "$XDG_RUNTIME_DIR/dockerd.pid"

@@ -64,6 +64,8 @@ pkgs.dockerTools.streamLayeredImage {
     cp ${docker.uidmap}/bin/newuidmap usr/local/bin/newuidmap
     cp ${docker.uidmap}/bin/newgidmap usr/local/bin/newgidmap
     cp ${docker.tun}/bin/agent-docker-tun usr/local/bin/agent-docker-tun
+    ${lib.optionalString (docker.binfmt != null)
+      "cp ${docker.binfmt}/bin/agent-docker-binfmt usr/local/bin/agent-docker-binfmt"}
     cp ${./AGENTS.md} AGENTS.md
     cp -rP ${home.config.home-files}/. home/adamr/
     chmod -R u+w home/adamr
@@ -83,6 +85,9 @@ pkgs.dockerTools.streamLayeredImage {
     chmod 4755 usr/local/bin/newuidmap usr/local/bin/newgidmap
     chown 0:0 usr/local/bin/agent-docker-tun
     chmod 4755 usr/local/bin/agent-docker-tun
+  '' + lib.optionalString (docker.binfmt != null) ''
+    chown 0:0 usr/local/bin/agent-docker-binfmt
+    chmod 4755 usr/local/bin/agent-docker-binfmt
   '';
   config = {
     Cmd = [ "${pkgs.zsh}/bin/zsh" ];
