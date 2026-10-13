@@ -407,7 +407,7 @@ release() {
   if [ "$locked" = true ]; then rmdir -- "$task_lock"; fi
 }
 trap release EXIT
-if [ "$action" = setup ] || [ "$action" = start ]; then
+if [ "$action" = setup ] || [ "$action" = start ] || [ "$action" = cleanup ]; then
   mkdir -p "$state_root"
 else
   [ -f "$metadata" ] || die "task is not set up: $clone"
@@ -725,7 +725,9 @@ case "$action" in
     fi
     if sandbox_exists; then stop_sandbox; fi
     check_paths
-    if [ "$discard" = false ]; then
+    # A missing clone contains no work to preserve, but its metadata may be
+    # left behind after external workspace or sandbox removal.
+    if [ "$discard" = false ] && [ -e "$clone" ]; then
       require_clone
       # The clone is the entire writable mount, so its status covers every file.
       require_discardable

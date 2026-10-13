@@ -2,7 +2,8 @@
 # Built by `make.sh image project` (`agent-image project`), which passes the inputs below in
 # environment variables, so these attributes only evaluate with --impure:
 #   AGENT_PROJECT_SHELL       absolute path of the project's shell.nix
-#   AGENT_PROJECT_IMAGE       image reference (NAME:TAG) for `image`
+#   AGENT_PROJECT_BASE_IMAGE  configured base image reference (NAME:TAG)
+#   AGENT_PROJECT_IMAGE       project image reference (NAME:TAG) for `image`
 #   AGENT_PROJECT_ENV         `nix print-dev-env --profile` store path, for `image`
 #   AGENT_PROJECT_ENV_SCRIPT  file holding the `nix print-dev-env` output, for `image`
 { inputs, system }:
@@ -26,11 +27,12 @@ let
   };
 in {
   inherit shell;
-  # Identifies a project image by the derivations it is made from: the base
-  # image and the shell. make.sh puts it in the image tag, so a project image
-  # is rebuilt only when one of them changes. Evaluating it builds nothing.
+  # Identifies a project image by the configured base image plus the
+  # derivations it is made from. make.sh puts it in the image tag, so a project
+  # image is rebuilt only when one of them changes. Evaluating it builds
+  # nothing.
   key = builtins.substring 0 16 (builtins.hashString "sha256"
-    (builtins.unsafeDiscardStringContext "agent-project-v1 ${baseImage.drvPath} ${shell.drvPath}"));
+    (builtins.unsafeDiscardStringContext "agent-project-v1 ${getEnv "AGENT_PROJECT_BASE_IMAGE"} ${baseImage.drvPath} ${shell.drvPath}"));
   image = import ./. {
     inherit inputs system pkgs;
     project = {

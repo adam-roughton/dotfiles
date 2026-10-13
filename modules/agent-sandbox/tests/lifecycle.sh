@@ -434,6 +434,22 @@ cache_lazy_creation() {
   expected_create
 }
 
+cleanup_missing_resources() {
+  setup
+  ok start "$TASK"
+  rm -- "$FAKE_MSB_STATE/$SANDBOX"
+  rm -rf -- "$CLONE"
+  ok cleanup "$TASK"
+  removed
+  rmdir -- "$STATE_DIR"
+
+  setup
+  rm -rf -- "${CLONE%/*}"
+  ok cleanup "$TASK"
+  absent "$META"
+  absent "$LOCK"
+}
+
 cache_start_failure() {
   setup
   local operation="${CASE_NAME#cache_start_failure_}" first_sandbox="$SANDBOX" first_meta="$META"
@@ -1832,7 +1848,7 @@ tests=(roundtrip submodules submodule_sync dirty_submodule_sync reuse mount_isol
   ignored_switch_collision ignored_sync_collision host_tag_collision main_tag_prompt
   clone_tag_collision squash_merge_options sync_repo_lock
   detached_host dirty_host untracked_host dirty_cleanup untracked_cleanup ignored_cleanup
-  unsynced_cleanup other_branch_cleanup ls_failure stop_failure rm_failure
+  unsynced_cleanup other_branch_cleanup cleanup_missing_resources ls_failure stop_failure rm_failure
   symlink_parent symlink_clone symlink_git dry_run cleanup_selectors partial_initialization
   checked_out_destination no_main lock_refusal wrong_branch paused_lifecycle
   inspect_failure start_failure resume_failure transition_verification reflog_cleanup

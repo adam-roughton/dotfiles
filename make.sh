@@ -368,7 +368,8 @@ remove_old_project_images() {
 # make.sh image project: builds and loads the agent image plus the environment
 # of DIR/shell.nix, unless an image for the current base image and shell
 # already exists. The tag is NAME:PROJECT-<key>, where NAME is the agent
-# image's name and the key identifies the base image and shell derivations
+# image's name and the key identifies the configured base image and shell
+# derivations
 # (systems/agent-computer/project.nix). Loading a new tag removes the
 # project's older tags; the agent image itself is never removed. Prints the
 # image reference on stdout; everything else goes to stderr.
@@ -426,6 +427,7 @@ project_image() {
   if [ "$(uname -s)" = "Darwin" ]; then
     darwin=true
     container_options=(--env "AGENT_PROJECT_SHELL=$shell_file"
+      --env "AGENT_PROJECT_BASE_IMAGE=$agent_image"
       --mount "type=bind,source=$project_dir,target=$project_dir,readonly")
   fi
   local nix_project=(nix --extra-experimental-features "nix-command flakes")
@@ -438,7 +440,7 @@ project_image() {
       "${container_options[@]}" -- key "$image_system" "$@"
     key="$(cat "$build_dir/key")"
   else
-    key="$(AGENT_PROJECT_SHELL="$shell_file" "${nix_project[@]}" eval --impure --raw "$project_attr.key" "$@")"
+    key="$(AGENT_PROJECT_SHELL="$shell_file" AGENT_PROJECT_BASE_IMAGE="$agent_image" "${nix_project[@]}" eval --impure --raw "$project_attr.key" "$@")"
   fi
   [[ "$key" =~ ^[0-9a-f]{16}$ ]] || {
     echo "unexpected project image key: $key" >&2
