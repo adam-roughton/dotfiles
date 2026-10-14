@@ -1,4 +1,4 @@
-{ pkgs, lib, ... }:
+{ pkgs, lib, inputs, ... }:
 let
   # One headless JDK shared by every JVM tool. Each tool otherwise wraps its own full
   # (GTK/X11) JDK, so the image would carry several JDKs.
@@ -114,11 +114,12 @@ in {
       task-handover.source = ../../skills/task-handover;
       infra-triage.source = ../../skills/infra-triage;
       incident-report.source = ../../skills/incident-report;
+      show-me.source = inputs.humanlayer-skills + "/plugins/show-me/skills/show-me";
     };
     # Skills every agent type gets.
     baseSkills = [ ];
     profiles = {
-      code.skills = [ "task-handover" ];
+      code.skills = [ "task-handover" "show-me" ];
       # infra-agent (modules/infra-agent): production triage through the
       # environment's broker. The VM has no other network access, so the
       # browser is disabled. INFRA_MCP_URL is set when the sandbox is created

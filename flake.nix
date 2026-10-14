@@ -18,6 +18,13 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    # Third-party agent skills. Keep this as a non-flake input so individual
+    # skill directories can be exposed through the agent profile catalog.
+    humanlayer-skills = {
+      url = "github:humanlayer/skills";
+      flake = false;
+    };
+
     darwin = {
       url = "github:nix-darwin/nix-darwin";
       inputs.nixpkgs.follows = "nixpkgs";

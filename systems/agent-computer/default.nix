@@ -22,6 +22,7 @@ let
   docker = import ./docker.nix { inherit pkgs lib; };
   home = inputs.home-manager.lib.homeManagerConfiguration {
     inherit pkgs;
+    extraSpecialArgs = { inherit inputs; };
     modules = [ ./home.nix ];
   };
   contents = pkgs.buildEnv {
