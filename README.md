@@ -336,7 +336,7 @@ through Homebrew, but on Linux you have to install it yourself, and microsandbox
 needs access to `/dev/kvm`.
 
 ```text
-code-agent {setup|start|resume} [TASK] [-- COMMAND [ARG...]]
+code-agent {setup|start|resume|restart} [TASK] [-- COMMAND [ARG...]]
 code-agent {stop|status|sync|cleanup} [TASK] [--discard] [--dry-run]
 code-agent login
 code-agent help [COMMAND]
@@ -727,7 +727,7 @@ it exists, or create it from the current branch if it does not. On `main`, an
 omitted name prompts for a branch instead of handing over `main` itself.
 No `main` branch is required; detached host `HEAD` is rejected.
 
-`setup`, `start`, `resume`, and `sync` require a clean host working tree and
+`setup`, `start`, `resume`, `restart`, and `sync` require a clean host working tree and
 index, including no untracked files. Ignored host files are allowed and are
 not transferred. The command never auto-stashes or commits. Commit or stash
 changes first. Reusing a task keeps its original agent clone and source snapshot;
@@ -756,7 +756,7 @@ exit
 Commits are required: `sync` transfers committed Git history, not working-tree
 changes or the agent's conversation state.
 
-### Stop, Resume, and Status
+### Stop, Resume, Restart, and Status
 
 From the host checkout:
 
@@ -764,12 +764,15 @@ From the host checkout:
 ca status
 ca stop
 ca resume
+ca restart
 ```
 
 `status` outputs the task's paths and `msb ls`. `stop` stops the sandbox but
 preserves both the workspace and sandbox state. `resume` reattaches to an
 existing sandbox and requires its setup metadata. `start` also resumes an
-existing sandbox, so it can be used to return to a task.
+existing sandbox, so it can be used to return to a task. `restart` stops and
+starts an existing sandbox without recreating its disk or mounts; use it after
+host sleep to rebuild Microsandbox's network gateway when DNS no longer works.
 
 ### Sync and Review
 

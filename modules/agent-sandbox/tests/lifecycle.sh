@@ -257,6 +257,18 @@ reuse() {
   equal "$(git -C "$CLONE" rev-parse HEAD)" "$head"
 }
 
+restart() {
+  setup
+  ok_attach start "$TASK"
+  ok_attach restart "$TASK"
+  logged restart "$SANDBOX"
+  equal "$(count_command create)" 1
+  equal "$(count_command restart)" 1
+  equal "$(< "$FAKE_MSB_STATE/$SANDBOX")" Running
+  rm -- "$FAKE_MSB_STATE/$SANDBOX"
+  reject 'sandbox is absent; use code-agent start to recreate it' restart "$TASK"
+}
+
 mount_isolation() {
   setup first
   local first_clone="$CLONE" first_mount="$CLONE" first_upstream="$UPSTREAM" first_sandbox="$SANDBOX"
@@ -1488,17 +1500,19 @@ copilot_secret() {
   equal "$(secret_env_log)" 'create gho_first_token'
   [[ "$(< "$FAKE_MSB_LOG")" != *gho_* ]] || fail 'token appeared in msb arguments'
   [[ "$OUTPUT" != *gho_* ]] || fail 'token appeared in command output'
-  # Running and paused sandboxes need no token; a restart re-reads the rotated token.
+  # Running and paused sandboxes need no token. Restarting re-reads the token.
   ok resume "$TASK"
   equal "$(count_command exec)" 4
   copilot_token gho_rotated_token
+  ok restart "$TASK"
+  equal "$(secret_env_log)" "$(printf '%s\n' 'create gho_first_token' 'restart gho_rotated_token')"
   ok stop "$TASK"
   ok resume "$TASK"
-  equal "$(secret_env_log)" "$(printf '%s\n' 'create gho_first_token' 'start gho_rotated_token')"
-  # A missing token blocks restarting a Copilot sandbox but not stopping it.
+  equal "$(secret_env_log)" "$(printf '%s\n' 'create gho_first_token' 'restart gho_rotated_token' 'start gho_rotated_token')"
+  # A missing token blocks restart but not stopping a Copilot sandbox.
   ok stop "$TASK"
   rm -- "$TOKEN_FILE"
-  reject 'Copilot token file is missing' resume "$TASK"
+  reject 'Copilot token file is missing' restart "$TASK"
   equal "$(< "$FAKE_MSB_STATE/$SANDBOX")" Stopped
   equal "$(count_command start)" 1
   preserved
@@ -1835,7 +1849,7 @@ fi
 command -v jq >/dev/null 2>&1 || fail 'jq is required'
 ROOT="$(mktemp -d "${TMPDIR:-/tmp}/code-agent-lifecycle.XXXXXXXX")"
 trap 'rm -rf -- "$ROOT"' EXIT
-tests=(roundtrip submodules submodule_sync dirty_submodule_sync reuse mount_isolation cache_sharing cache_reuse cache_lazy_creation
+tests=(roundtrip submodules submodule_sync dirty_submodule_sync reuse restart mount_isolation cache_sharing cache_reuse cache_lazy_creation
   cache_missing_resume cache_start_failure_ls cache_start_failure_create
   cache_start_failure_inspect cache_start_failure_exec
   cache_overlap_repo_equal cache_overlap_repo_descendant cache_overlap_repo_ancestor

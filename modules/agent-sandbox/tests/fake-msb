@@ -67,11 +67,11 @@ case "$command" in
     [ -f "$FAKE_MSB_STATE/$1" ] || exit 3
     printf '{"name":"%s","status":"%s"}\n' "$1" "$(< "$FAKE_MSB_STATE/$1")"
     ;;
-  start|resume|stop)
+  start|resume|restart|stop)
     [ "$#" = 1 ] && [ -f "$FAKE_MSB_STATE/$1" ] || exit 3
     status="$(< "$FAKE_MSB_STATE/$1")"
     case "$command:$status" in
-      start:Created|start:Stopped|start:Crashed|resume:Paused)
+      start:Created|start:Stopped|start:Crashed|resume:Paused|restart:Running|restart:Paused|restart:Created|restart:Stopped|restart:Crashed)
         [ "${FAKE_MSB_NO_TRANSITION:-}" = "$command" ] || printf 'Running\n' > "$FAKE_MSB_STATE/$1" ;;
       stop:Running|stop:Stopped|stop:Created|stop:Crashed)
         [ "${FAKE_MSB_NO_TRANSITION:-}" = "$command" ] || printf 'Stopped\n' > "$FAKE_MSB_STATE/$1" ;;

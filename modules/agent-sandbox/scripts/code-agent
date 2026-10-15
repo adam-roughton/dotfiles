@@ -55,6 +55,7 @@ command_help() {
       '  setup    Prepare the host branch, upstream snapshot, and agent clone.' \
       '  start    Set up or resume a sandbox and run opencode or a command.' \
       '  resume   Run opencode or a command in an existing sandbox.' \
+      '  restart  Restart an existing sandbox and run opencode or a command.' \
       '  stop     Stop a sandbox while retaining its workspace and state.' \
       '  status   Show task paths and list sandboxes.' \
       '  sync     Fast-forward the host task branch from committed agent work.' \
@@ -73,6 +74,7 @@ command_help() {
     setup) description='Create or select the task branch, publish its committed snapshot, and prepare the agent clone. Does not create a sandbox.' ;;
     start) description='Perform setup, create or resume the sandbox, then run opencode in /workspace. Pass a command after -- to run it instead. Exiting leaves the sandbox running.' ;;
     resume) description='Start or unpause an existing sandbox, then run opencode in /workspace. Pass a command after -- to run it instead. Does not create a missing sandbox or switch the host branch.' ;;
+    restart) description='Restart an existing sandbox, refreshing its Microsandbox network state, then run opencode in /workspace. Pass a command after -- to run it instead. Does not create a missing sandbox or switch the host branch.' ;;
     stop) description='Stop the sandbox, retaining the workspace and sandbox state. A missing sandbox is harmless; the task must have setup metadata.' ;;
     status) description='Print the task branch, sandbox name, workspace, and upstream paths, then list microsandboxes. The task must have setup metadata.' ;;
     sync) description='Import committed agent HEAD and fast-forward the host task branch. A checked-out task branch also updates host files. Divergence stops the update and retains an incoming ref for manual recovery. Does not publish or merge into main.' ;;
@@ -96,7 +98,7 @@ command_help() {
     *) printf 'Unknown command: %s\n' "$command" >&2; return 2 ;;
   esac
   printf 'Usage: code-agent %s [TASK]' "$command"
-  if [ "$command" = start ] || [ "$command" = resume ]; then printf ' [-- COMMAND [ARG...]]'; fi
+  if [ "$command" = start ] || [ "$command" = resume ] || [ "$command" = restart ]; then printf ' [-- COMMAND [ARG...]]'; fi
   if [ "$command" = cleanup ]; then printf ' [TASK] [--task TASK-ID] [--all | --all-tasks] [--discard] [--dry-run]'; fi
   printf '\n\n%s\n\n' "$description"
   printf '%s\n' \
@@ -109,7 +111,7 @@ command_help() {
       ;;
     *) printf '%s\n' '  On main, provide TASK explicitly; no host branch is created or selected.' ;;
   esac
-  if [ "$command" = start ] || [ "$command" = resume ]; then
+  if [ "$command" = start ] || [ "$command" = resume ] || [ "$command" = restart ]; then
     printf '%s\n' 'Run command COMMAND with its arguments in /workspace instead of the default opencode.'
   fi
   if [ "$command" = start ]; then
@@ -122,7 +124,7 @@ command_help() {
       'environment (agent-image project; built on first use and after shell or image changes).'
   fi
   case "$command" in
-    setup|start|resume|sync)
+    setup|start|resume|restart|sync)
       printf '\n%s\n' 'Safety: host tracked, staged, and untracked changes must be committed or stashed.'
       ;;
   esac
@@ -139,7 +141,7 @@ command_help() {
       '  --discard    Delete even unpreserved work. Irreversible; use deliberately.'
   fi
   case "$command" in
-    start|resume|cleanup) printf '\n%s\n' 'Package managers use shared writable caches on new sandboxes; task cleanup retains them.' 'Concurrent VMs can corrupt lock-dependent caches. Stop all cache users before maintenance.' ;;
+    start|resume|restart|cleanup) printf '\n%s\n' 'Package managers use shared writable caches on new sandboxes; task cleanup retains them.' 'Concurrent VMs can corrupt lock-dependent caches. Stop all cache users before maintenance.' ;;
   esac
   printf '\nExamples:\n  ca %s\n  ca %s "Improve API"\n' "$command" "$command"
   printf '\n%s\n' 'Help: --help, -h, or help. Configuration: dotfiles.agentSandbox in Home Manager.'
@@ -160,7 +162,7 @@ if [ "$#" -eq 1 ] && [ "$1" = --print-image ]; then printf '%s\n' "$image"; exit
 action="$1"
 shift
 case "$action" in
-  setup|start|resume|stop|status|sync|cleanup|login) ;;
+  setup|start|resume|restart|stop|status|sync|cleanup|login) ;;
   *) printf 'Unknown command: %s\n' "$action" >&2; command_help >&2; exit 2 ;;
 esac
 for argument in "$@"; do
@@ -235,7 +237,7 @@ if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then
   shift
 fi
 attach_command=(opencode)
-if [ "$action" = start ] || [ "$action" = resume ]; then
+if [ "$action" = start ] || [ "$action" = resume ] || [ "$action" = restart ]; then
   if [ "${1:-}" = -- ]; then
     shift
     [ "$#" -gt 0 ] || { command_help "$action" >&2; exit 2; }
@@ -322,7 +324,7 @@ require_host_clean() {
   status="$(git -C "$repo_root" status --porcelain --untracked-files=all)" || die 'cannot inspect host repository'
   [ -z "$status" ] || die 'commit or stash host changes before handover or sync'
 }
-case "$action" in setup|start|resume|sync) require_host_clean ;; esac
+case "$action" in setup|start|resume|restart|sync) require_host_clean ;; esac
 if [ "$explicit_task" = false ]; then
   task="$host_branch"
   if [ "$task" = main ]; then
@@ -595,27 +597,43 @@ fi
 printf 'Task: %s\nBranch: %s\nSandbox: %s\nWorkspace: %s\nUpstream: %s\nCache: %s\n' "$task" "$branch" "$sandbox" "$clone" "$bare_repo" "$cache_root"
 case "$action" in
   setup) ;;
-  start|resume)
+  start|resume|restart)
     require_clone
     [ "$(git config --file "$metadata" --get task.ready || true)" = true ] || die 'initialization incomplete; run code-agent setup first'
     copilot_sandbox="$(git config --file "$metadata" --get task.copilotSecret || true)"
     if sandbox_exists; then
-      case "$(sandbox_status)" in
-        Running) ;;
-        Paused) msb resume "$sandbox" ;;
-        Created|Stopped|Crashed)
-          # msb re-reads secret values from its environment on every start.
-          if [ "$copilot_sandbox" = true ]; then
-            load_copilot_token
-            CODE_AGENT_COPILOT_TOKEN="$copilot_token" msb start "$sandbox"
-          else
-            msb start "$sandbox"
-          fi
-          ;;
-        *) die 'sandbox is transitioning or has unknown status; retry later' ;;
-      esac
-    elif [ "$action" = resume ]; then
-      die 'sandbox is absent; use code-agent start to recreate it'
+      if [ "$action" = restart ]; then
+        case "$(sandbox_status)" in
+          Running|Paused|Created|Stopped|Crashed)
+            # A restart rebuilds Microsandbox's host-side network gateway after
+            # host sleep while retaining the sandbox's disk and mounts.
+            if [ "$copilot_sandbox" = true ]; then
+              load_copilot_token
+              CODE_AGENT_COPILOT_TOKEN="$copilot_token" msb restart "$sandbox"
+            else
+              msb restart "$sandbox"
+            fi
+            ;;
+          *) die 'sandbox is transitioning or has unknown status; retry later' ;;
+        esac
+      else
+        case "$(sandbox_status)" in
+          Running) ;;
+          Paused) msb resume "$sandbox" ;;
+          Created|Stopped|Crashed)
+            # msb re-reads secret values from its environment on every start.
+            if [ "$copilot_sandbox" = true ]; then
+              load_copilot_token
+              CODE_AGENT_COPILOT_TOKEN="$copilot_token" msb start "$sandbox"
+            else
+              msb start "$sandbox"
+            fi
+            ;;
+          *) die 'sandbox is transitioning or has unknown status; retry later' ;;
+        esac
+      fi
+    elif [ "$action" = resume ] || [ "$action" = restart ]; then
+      die "sandbox is absent; use code-agent start to recreate it"
     else
       create_options=()
       network_options=(--net "$network_profiles")
