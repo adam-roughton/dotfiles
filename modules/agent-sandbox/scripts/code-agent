@@ -289,7 +289,7 @@ if [ "$action" = cleanup ] && { [ -n "$cleanup_task_id" ] || [ "$cleanup_all" = 
     [ -n "$recorded_task" ] && [ -n "$recorded_repo" ] || die "task metadata is incomplete: $metadata"
     recorded_repo="$(realpath -e "$recorded_repo")" || die "task repository is missing: $recorded_repo"
     git -C "$recorded_repo" rev-parse --show-toplevel >/dev/null 2>&1 || die "task repository is not a Git checkout: $recorded_repo"
-    (cd -- "$recorded_repo" && bash "$0" cleanup "$recorded_task" "${cleanup_options[@]}")
+    (cd -- "$recorded_repo" && CODE_AGENT_RECORDED_BRANCH="$recorded_task" bash "$0" cleanup "$recorded_task" "${cleanup_options[@]}")
   }
 
   if [ -n "$cleanup_task_id" ]; then
@@ -337,6 +337,13 @@ if [ "$explicit_task" = false ]; then
       *) die 'on main; switch to the task branch or provide its name' ;;
     esac
   fi
+fi
+if [ -n "${CODE_AGENT_RECORDED_BRANCH:-}" ]; then
+  [ "$action" = cleanup ] || die 'recorded branch identity is only valid for cleanup'
+  [ "$explicit_task" = true ] && [ "$task" = "$CODE_AGENT_RECORDED_BRANCH" ] || die 'invalid recorded branch identity'
+  # Selector cleanup re-enters this path with the recorded branch. Keep slash
+  # branch names intact instead of applying explicit-task normalization.
+  explicit_task=false
 fi
 task_id="$(printf '%s' "$task" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/_/g; s/^_+//; s/_+$//')"
 [ -n "$task_id" ] || die 'task name must contain at least one ASCII letter or number'

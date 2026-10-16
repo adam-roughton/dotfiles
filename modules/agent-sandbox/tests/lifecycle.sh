@@ -1179,6 +1179,16 @@ cleanup_selectors() {
   absent "$first_clone"
   absent "$second_clone"
 
+  # Branches selected implicitly retain slashes; selector cleanup must not
+  # normalize the recorded branch during its internal re-entry.
+  git -C "$HOST" switch -qc 'copilot/design-catalog-management-ui-api'
+  ok setup
+  task_fields
+  local slash_clone="$CLONE"
+  ok start
+  ok cleanup --all --discard
+  absent "$slash_clone"
+
   local original_host="$HOST" other_host="$CASE/repositories/other"
   HOST="$other_host"
   new_repo "$HOST"
