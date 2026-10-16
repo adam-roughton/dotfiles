@@ -13,12 +13,12 @@ image_command="${DOTFILES_IMAGE_COMMAND:-$0 image}"
 usage() {
   if [ -n "${DOTFILES_IMAGE_COMMAND:-}" ]; then
     echo "usage: $DOTFILES_IMAGE_COMMAND [agent|broker] [--force] [NIX OPTIONS...]" >&2
-    echo "       $DOTFILES_IMAGE_COMMAND project DIR [--name NAME] [--force] [NIX OPTIONS...]" >&2
+    echo "       $DOTFILES_IMAGE_COMMAND project DIR [--name NAME] [--force] [--print-root-disk] [NIX OPTIONS...]" >&2
     exit 1
   fi
   echo "usage: $0 {build|image|vm|disk-image|firmware|switch|update|clean} [SYSTEM] [OPTIONS...]" >&2
   echo "       $0 image [agent|broker] [--force] [NIX OPTIONS...]" >&2
-  echo "       $0 image project DIR [--name NAME] [--force] [NIX OPTIONS...]" >&2
+  echo "       $0 image project DIR [--name NAME] [--force] [--print-root-disk] [NIX OPTIONS...]" >&2
   exit 1
 }
 
@@ -167,6 +167,9 @@ project="$flake#legacyPackages.$system.agent-project"
 case "$action" in
   key)
     nix eval --impure --raw "$project.key" "$@"
+    ;;
+  config)
+    nix eval --impure --raw "$project.rootDisk" "$@"
     ;;
   build)
     # print-dev-env points $out at ./outputs; project.nix rewrites that
@@ -377,7 +380,8 @@ project_image() {
   local project_dir="$1"
   local project_name="$2"
   local force="$3"
-  shift 3
+  local print_root_disk="$4"
+  shift 4
 
   [ -d "$project_dir" ] || {
     echo "not a directory: $project_dir" >&2
@@ -432,6 +436,17 @@ project_image() {
   fi
   local nix_project=(nix --extra-experimental-features "nix-command flakes")
   local project_attr="$DOTFILES_DIR#legacyPackages.$image_system.agent-project"
+
+  if [ "$print_root_disk" = true ]; then
+    if [ "$darwin" = true ]; then
+      run_in_builder_container "$image_system" "$build_dir/root-disk" "$CONTAINER_PROJECT_SCRIPT" \
+        "${container_options[@]}" -- config "$image_system" "$@"
+      cat "$build_dir/root-disk"
+    else
+      AGENT_PROJECT_SHELL="$shell_file" "${nix_project[@]}" eval --impure --raw "$project_attr.rootDisk" "$@"
+    fi
+    return
+  fi
 
   # Only evaluates: quick when the image exists already.
   local key
@@ -517,6 +532,7 @@ case "$mode" in
       project_dir="$1"
       shift
       project_name=''
+      print_root_disk=false
       while [ "$#" -gt 0 ]; do
         case "$1" in
           --name)
@@ -528,10 +544,14 @@ case "$mode" in
             force=true
             shift
             ;;
+          --print-root-disk)
+            print_root_disk=true
+            shift
+            ;;
           *) break ;;
         esac
       done
-      project_image "$project_dir" "$project_name" "$force" "$@"
+      project_image "$project_dir" "$project_name" "$force" "$print_root_disk" "$@"
       exit 0
     fi
     if [ "${1:-}" = "--force" ]; then

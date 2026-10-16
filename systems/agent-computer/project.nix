@@ -27,6 +27,12 @@ let
   };
 in {
   inherit shell;
+  # Optional host-side sandbox policy. This is evaluated alongside shell.nix,
+  # before code-agent creates the Microsandbox.
+  rootDisk =
+    let value = shell.passthru.codeAgent.rootDisk or ""; in
+    if builtins.isString value then value
+    else throw "shell.nix passthru.codeAgent.rootDisk must be a string";
   # Identifies a project image by the configured base image plus the
   # derivations it is made from. make.sh puts it in the image tag, so a project
   # image is rebuilt only when one of them changes. Evaluating it builds

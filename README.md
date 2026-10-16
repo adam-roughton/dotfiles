@@ -157,6 +157,21 @@ cgroup limits require delegation that this image does not provide. Use workspace
 bind mounts for project files. Privileged mode and host namespaces are not part
 of the supported integration-test workflow.
 
+Projects can override the root disk for new `code-agent` sandboxes through
+their `shell.nix`. Add the setting to the derivation's `passthru`; it is read on
+the host before the sandbox is created, rather than exported into the guest:
+
+```nix
+pkgs.mkShell {
+  # buildInputs and other shell settings
+  passthru.codeAgent.rootDisk = "24G";
+}
+```
+
+The size must be a positive Microsandbox size such as `24G` or `512M`. Existing
+sandboxes retain their disk size; clean up and recreate one to apply a changed
+setting.
+
 After rebuilding the image, verify inside a new sandbox with:
 
 ```sh

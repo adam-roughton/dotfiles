@@ -93,7 +93,7 @@ in with lib; {
       rootDisk = mkOption {
         type = types.strMatching "[1-9][0-9]*[KMG]?";
         default = "12G";
-        description = "Writable root disk allocated to new sandboxes, using microsandbox size syntax (for example 12G or 512M).";
+        description = "Writable root disk allocated to new sandboxes, using microsandbox size syntax (for example 12G or 512M). A project shell.nix can override this for new sandboxes with passthru.codeAgent.rootDisk.";
       };
       networkProfiles = mkOption {
         type = types.listOf (types.enum [ "public" "private" "host" ]);

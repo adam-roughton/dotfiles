@@ -660,17 +660,23 @@ case "$action" in
       # image with its environment, built on first use and whenever the shell
       # or the agent image definition changes. Existing sandboxes keep theirs.
       sandbox_image="$image"
+      sandbox_root_disk="$root_disk"
       if [ -f "$repo_root/shell.nix" ]; then
+        sandbox_root_disk="$("$agent_image" project "$repo_root" --name "$repo_key" --print-root-disk)" || \
+          die 'cannot evaluate the project root disk setting from shell.nix; fix it and retry'
+        if [ -z "$sandbox_root_disk" ]; then sandbox_root_disk="$root_disk"; fi
+        [[ "$sandbox_root_disk" =~ ^[1-9][0-9]*[KMG]?$ ]] || \
+          die "shell.nix passthru.codeAgent.rootDisk must be a positive size such as 24G, not: $sandbox_root_disk"
         sandbox_image="$("$agent_image" project "$repo_root" --name "$repo_key")" || \
           die 'cannot build the project image for shell.nix; fix it (or move it aside to use the default image) and retry'
         [ -n "$sandbox_image" ] || die 'agent-image did not report a project image'
       fi
       git config --file "$metadata" task.image "$sandbox_image"
-      printf 'Image: %s\n' "$sandbox_image"
+      printf 'Image: %s\nRoot disk: %s\n' "$sandbox_image" "$sandbox_root_disk"
       # The token reaches msb only through its environment, never its arguments.
       CODE_AGENT_COPILOT_TOKEN="$copilot_token" msb create --name "$sandbox" --cpus "$cpus" \
         --memory "$memory" \
-        --root-disk "$root_disk" \
+        --root-disk "$sandbox_root_disk" \
         "${network_options[@]}" \
         --volume "$bare_repo:/mnt/upstream.git:ro" \
         --volume "$clone:/workspace" \

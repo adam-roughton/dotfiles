@@ -93,13 +93,13 @@ logged() {
   fail "missing msb invocation: $expected"
 }
 expected_create() {
-  local profile=() network=(--net "${values[7]}")
+  local profile=() network=(--net "${values[7]}") root_disk="${6:-${values[6]}}"
   if [ -n "${values[13]}" ]; then network+=(--net-rule "${values[13]}"); fi
   if [ -n "${values[12]}" ]; then
     profile=(--env "OPENCODE_CONFIG=/home/adamr/.config/agent-profiles/${values[12]}/opencode.json"
       --env "AGENT_PROFILE=${values[12]}")
   fi
-  logged create --name "${1:-$SANDBOX}" --cpus "${3:-4}" --memory "${4:-8G}" --root-disk "${values[6]}" \
+  logged create --name "${1:-$SANDBOX}" --cpus "${3:-4}" --memory "${4:-8G}" --root-disk "$root_disk" \
     "${network[@]}" \
     --volume "$UPSTREAM:/mnt/upstream.git:ro" --volume "${2:-$CLONE}:/workspace" \
     --volume "$CACHE:/cache" \
@@ -1704,7 +1704,7 @@ project_image() {
   if OUTPUT="$(FAKE_AGENT_IMAGE_STATUS=3 agent start "$TASK" 2>&1)"; then fail 'start succeeded without a project image'; fi
   contains "$OUTPUT" 'cannot build the project image for shell.nix'
   absent "$FAKE_MSB_STATE/$SANDBOX"
-  equal "$(< "$CASE/agent-image.log")" "project $(realpath -e "$HOST") --name $repo_key"
+  contains "$(< "$CASE/agent-image.log")" "project $(realpath -e "$HOST") --name $repo_key --print-root-disk"
   # An empty report is refused too.
   if OUTPUT="$(agent start "$TASK" 2>&1)"; then fail 'start succeeded without a reported image'; fi
   contains "$OUTPUT" 'agent-image did not report a project image'
@@ -1716,6 +1716,17 @@ project_image() {
   expected_create "$SANDBOX" "$CLONE" 4 8G "$project_image"
   equal "$(git config --file "$META" --get task.image)" "$project_image"
   equal "$(tail -n 1 "$CASE/agent-image.log")" "project $(realpath -e "$HOST") --name $repo_key"
+}
+
+project_root_disk() {
+  local project_image=dotfiles-agent:project-0123456789abcdef
+  printf '{ pkgs ? import <nixpkgs> { } }: (pkgs.mkShell { }).overrideAttrs (_: { passthru.codeAgent.rootDisk = "24G"; })\n' > "$HOST/shell.nix"
+  git -C "$HOST" add shell.nix
+  git -C "$HOST" commit -qm shell
+  setup project-root-disk
+  OUTPUT="$(FAKE_AGENT_IMAGE="$project_image" FAKE_AGENT_ROOT_DISK=24G agent start "$TASK" 2>&1)" || fail 'start with a project root disk failed'
+  contains "$OUTPUT" 'Root disk: 24G'
+  expected_create "$SANDBOX" "$CLONE" 4 8G "$project_image" 24G
 }
 
 store_source_image() {
@@ -1821,9 +1832,9 @@ if [ "${1:-}" = --case ]; then
   # The tracked fixture need not have its executable bit set.
   cp -- "$TEST_DIR/fake-msb" "$CASE/bin/msb"
   # agent-image (make.sh image from the Nix store) logs its arguments and
-  # reports FAKE_AGENT_IMAGE, or fails with FAKE_AGENT_IMAGE_STATUS.
+  # reports FAKE_AGENT_IMAGE, or its project's root disk setting.
   # shellcheck disable=SC2016 # The fake's own variables expand when it runs.
-  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> %q\n[ "${FAKE_AGENT_IMAGE_STATUS:-0}" = 0 ] || exit "$FAKE_AGENT_IMAGE_STATUS"\nprintf "%%s\\n" "${FAKE_AGENT_IMAGE:-}"\n' \
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> %q\n[ "${FAKE_AGENT_IMAGE_STATUS:-0}" = 0 ] || exit "$FAKE_AGENT_IMAGE_STATUS"\nfor argument in "$@"; do [ "$argument" != --print-root-disk ] || { printf "%%s\\n" "${FAKE_AGENT_ROOT_DISK:-}"; exit; }; done\nprintf "%%s\\n" "${FAKE_AGENT_IMAGE:-}"\n' \
     "$CASE/agent-image.log" > "$CASE/bin/agent-image"
   chmod +x "$CASE/bin/msb" "$CASE/bin/agent-image"
   export PATH="$CASE/bin:$PATH"
@@ -1867,7 +1878,7 @@ tests=(roundtrip submodules submodule_sync dirty_submodule_sync reuse restart mo
   checked_out_destination no_main lock_refusal wrong_branch paused_lifecycle
   inspect_failure start_failure resume_failure transition_verification reflog_cleanup
   stash_cleanup annotated_tag_cleanup signed_push concurrent_setup interactive_lock copilot_secret copilot_existing_sandbox
-  copilot_token_checks copilot_login configured_settings image_replacement project_image store_source_image command_help)
+  copilot_token_checks copilot_login configured_settings image_replacement project_image project_root_disk store_source_image command_help)
 passed=0
 failed=0
 for test in "${tests[@]}"; do
