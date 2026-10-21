@@ -565,6 +565,11 @@ if [ "$action" = setup ] || [ "$action" = start ]; then
   [ "$(git -C "$bare_repo" rev-parse --is-bare-repository)" = true ] || die 'upstream is not a bare repository'
   # Immutable snapshot refs accept rebased source branches without force pushes.
   git -c push.gpgSign=false -C "$repo_root" push "$bare_repo" "$source_commit:refs/heads/snapshot-$source_commit"
+  # Mirror main so task clones can deliberately merge or rebase it. Guests
+  # only receive this repository read-only; task snapshots stay immutable.
+  if git -C "$repo_root" show-ref --verify --quiet refs/heads/main; then
+    git -c push.gpgSign=false -C "$repo_root" push "$bare_repo" "+refs/heads/main:refs/heads/main"
+  fi
   rmdir -- "$upstream_lock"
   upstream_locked=false
   if [ ! -e "$clone" ]; then
@@ -574,6 +579,15 @@ if [ "$action" = setup ] || [ "$action" = start ]; then
     git -C "$clone" submodule update --init --recursive
   fi
   require_clone
+  if git -C "$bare_repo" show-ref --verify --quiet refs/heads/main; then
+    main_refspec='+refs/heads/main:refs/remotes/origin/main'
+    if ! git -C "$clone" config --get-all remote.origin.fetch | grep -Fxq "$main_refspec"; then
+      git -C "$clone" config --add remote.origin.fetch "$main_refspec"
+    fi
+    # The clone's origin points at the guest mount after initialization, so
+    # fetch from the host path here and make main available immediately.
+    git -C "$clone" fetch "$bare_repo" "$main_refspec"
+  fi
   if [ "$(git config --file "$metadata" --get task.ready || true)" != true ]; then
     require_clean
     [ "$(git -C "$clone" rev-parse HEAD)" = "$source_commit" ] || die 'incomplete initialization contains work; refusing to reset it'

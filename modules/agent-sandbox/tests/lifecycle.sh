@@ -183,6 +183,23 @@ roundtrip() {
   git -C "$HOST" show-ref --verify --quiet "refs/heads/$BRANCH"
 }
 
+main_upstream() {
+  local first_main second_main refspec='+refs/heads/main:refs/remotes/origin/main'
+  setup main-upstream
+  first_main="$(git -C "$HOST" rev-parse main)"
+  equal "$(git -C "$UPSTREAM" rev-parse refs/heads/main)" "$first_main"
+  equal "$(git -C "$CLONE" rev-parse refs/remotes/origin/main)" "$first_main"
+  contains "$(git -C "$CLONE" config --get-all remote.origin.fetch)" "$refspec"
+
+  git -C "$HOST" switch -q main
+  printf 'main advance\n' >> "$HOST/tracked"
+  git -C "$HOST" commit -qam 'advance main'
+  second_main="$(git -C "$HOST" rev-parse main)"
+  setup "$TASK"
+  equal "$(git -C "$UPSTREAM" rev-parse refs/heads/main)" "$second_main"
+  equal "$(git -C "$CLONE" rev-parse refs/remotes/origin/main)" "$second_main"
+}
+
 submodules() {
   local host="$HOST" private_source="$CASE/repositories/private"
   new_repo "$private_source"
@@ -1870,7 +1887,7 @@ fi
 command -v jq >/dev/null 2>&1 || fail 'jq is required'
 ROOT="$(mktemp -d "${TMPDIR:-/tmp}/code-agent-lifecycle.XXXXXXXX")"
 trap 'rm -rf -- "$ROOT"' EXIT
-tests=(roundtrip submodules submodule_sync dirty_submodule_sync reuse restart mount_isolation cache_sharing cache_reuse cache_lazy_creation
+tests=(roundtrip main_upstream submodules submodule_sync dirty_submodule_sync reuse restart mount_isolation cache_sharing cache_reuse cache_lazy_creation
   cache_missing_resume cache_start_failure_ls cache_start_failure_create
   cache_start_failure_inspect cache_start_failure_exec
   cache_overlap_repo_equal cache_overlap_repo_descendant cache_overlap_repo_ancestor

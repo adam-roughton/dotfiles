@@ -753,6 +753,20 @@ submodules are initialized recursively. Only that task's clone is mounted
 read-write, at `/workspace`. The bare upstream is mounted read-only at
 `/mnt/upstream.git`; the rest of the workspace root, including task metadata,
 is not exposed to the sandbox.
+
+When the host repository has a `main` branch, `setup` and `start` mirror it
+into that read-only upstream. Task clones track it as `origin/main`, so an
+agent can intentionally integrate current host work without access to the host
+checkout or its credentials:
+
+```sh
+git fetch origin main
+git rebase origin/main  # or: git merge origin/main
+```
+
+Run `ca start <task>` after advancing host `main` to refresh the mirror. The
+task's original snapshot remains fixed; integrating `origin/main` is always an
+explicit agent action.
 Host Git author identity is copied into the clone, but credentials and signing
 keys are not. Commit signing is disabled locally in the clone.
 
