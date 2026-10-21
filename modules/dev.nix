@@ -1,5 +1,38 @@
 { config, pkgs, ... }:
-{
+let
+  # Fabric, which azure-cli requires, is incompatible with invoke 3.x.
+  # Remove this once nixpkgs updates Fabric for invoke 3.x.
+  azure-cli = pkgs.azure-cli.override {
+    python3 = pkgs.python3.override {
+      packageOverrides = self: super: {
+        invoke = super.buildPythonPackage rec {
+          pname = "invoke";
+          version = "2.2.1";
+          format = "setuptools";
+
+          src = pkgs.fetchPypi {
+            inherit pname version;
+            hash = "sha256-UVv0m0pIkyt5sCRZA0jaIvOcSULf+ZGtH7i4uuob5wc=";
+          };
+
+          postPatch = ''
+            sed -e 's|/bin/bash|${pkgs.bash}/bin/bash|g' -i invoke/config.py
+          '';
+
+          doCheck = false;
+          pythonImportsCheck = [ "invoke" ];
+
+          postInstall = pkgs.lib.optionalString (pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform) ''
+            mkdir -p $out/share/{bash-completion/completions,fish/vendor_completions.d,zsh/site-functions}
+            $out/bin/inv --print-completion-script=zsh >$out/share/zsh/site-functions/_inv
+            $out/bin/inv --print-completion-script=bash >$out/share/bash-completion/completions/inv.bash
+            $out/bin/inv --print-completion-script=fish >$out/share/fish/vendor_completions.d/inv.fish
+          '';
+        };
+      };
+    };
+  };
+in {
   config = {
     home.packages = with pkgs; [
 
