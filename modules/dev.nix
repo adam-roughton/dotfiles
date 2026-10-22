@@ -1,10 +1,14 @@
 { config, pkgs, ... }:
 let
-  # Fabric, which azure-cli requires, is broken on Python 3.14 and incompatible
-  # with invoke 3.x. Remove this once nixpkgs updates Azure CLI's dependencies.
+  # Fabric, which azure-cli requires, is marked broken and incompatible with
+  # invoke 3.x. Remove this once nixpkgs updates Azure CLI's dependencies.
   azure-cli = pkgs.azure-cli.override {
     python3 = pkgs.python313.override {
       packageOverrides = self: super: {
+        fabric = super.fabric.overridePythonAttrs (old: {
+          meta = old.meta // { broken = false; };
+        });
+
         invoke = super.buildPythonPackage rec {
           pname = "invoke";
           version = "2.2.1";
