@@ -1,41 +1,32 @@
 { config, pkgs, ... }:
 let
-  # Fabric, which azure-cli requires, is marked broken and incompatible with
-  # invoke 3.x. Remove this once nixpkgs updates Azure CLI's dependencies.
-  azure-cli = pkgs.azure-cli.override {
-    python3 = pkgs.python313.override {
-      packageOverrides = self: super: {
-        fabric = super.fabric.overridePythonAttrs (old: {
-          meta = old.meta // { broken = false; };
-        });
-
-        invoke = super.buildPythonPackage rec {
-          pname = "invoke";
-          version = "2.2.1";
-          format = "setuptools";
-
-          src = pkgs.fetchPypi {
-            inherit pname version;
-            hash = "sha256-UVv0m0pIkyt5sCRZA0jaIvOcSULf+ZGtH7i4uuob5wc=";
-          };
-
-          postPatch = ''
-            sed -e 's|/bin/bash|${pkgs.bash}/bin/bash|g' -i invoke/config.py
-          '';
-
-          doCheck = false;
-          pythonImportsCheck = [ "invoke" ];
-
-          postInstall = pkgs.lib.optionalString (pkgs.stdenv.buildPlatform.canExecute pkgs.stdenv.hostPlatform) ''
-            mkdir -p $out/share/{bash-completion/completions,fish/vendor_completions.d,zsh/site-functions}
-            $out/bin/inv --print-completion-script=zsh >$out/share/zsh/site-functions/_inv
-            $out/bin/inv --print-completion-script=bash >$out/share/bash-completion/completions/inv.bash
-            $out/bin/inv --print-completion-script=fish >$out/share/fish/vendor_completions.d/inv.fish
-          '';
-        };
+  # Fabric, which azure-cli requires, is marked broken with invoke >= 3
+  # (https://github.com/fabric/fabric/issues/2376), so pin invoke 2.x for
+  # azure-cli. Remove this once nixpkgs updates Fabric for invoke 3.x.
+  azurePythonOverrides = self: super: {
+    invoke = super.invoke.overridePythonAttrs (old: rec {
+      version = "2.2.1";
+      src = pkgs.fetchPypi {
+        pname = "invoke";
+        inherit version;
+        hash = "sha256-UVv0m0pIkyt5sCRZA0jaIvOcSULf+ZGtH7i4uuob5wc=";
       };
-    };
+    });
   };
+
+  # azure-cli builds its package set with `python3.override { packageOverrides
+  # = ...; }`, which replaces rather than composes with any packageOverrides
+  # already applied to the python3 we pass in. Wrap `override` so that our
+  # overrides are composed on top of azure-cli's own.
+  azurePython = pkgs.python313 // {
+    override = args: pkgs.python313.override (args // {
+      packageOverrides = pkgs.lib.composeExtensions
+        (args.packageOverrides or (_: _: { }))
+        azurePythonOverrides;
+    });
+  };
+
+  azure-cli = pkgs.azure-cli.override { python3 = azurePython; };
 in {
   config = {
     home.packages = with pkgs; [
