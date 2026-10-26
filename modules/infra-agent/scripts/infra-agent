@@ -21,6 +21,15 @@ copilot_secret_host=api.githubcopilot.com
 copilot_auth_path=/home/adamr/.local/share/opencode/auth.json
 # shellcheck disable=SC2016
 copilot_auth_json='{"github-copilot":{"type":"oauth","refresh":"$MSB_CODE_AGENT_COPILOT_TOKEN","access":"$MSB_CODE_AGENT_COPILOT_TOKEN","expires":0}}'
+# opencode 2 keeps credentials in its database; see code-agent for details.
+# shellcheck disable=SC2016
+copilot_credential_json='[{"id":"cred_code_agent_copilot","integrationID":"github-copilot","label":"GitHub Copilot (code-agent)","active":true,"value":{"type":"oauth","methodID":"device","refresh":"$MSB_CODE_AGENT_COPILOT_TOKEN","access":"$MSB_CODE_AGENT_COPILOT_TOKEN","expires":0}}]'
+# shellcheck disable=SC2016
+copilot_setup_script='set -e
+case "$(opencode --version)" in
+  0.*|1.*) mkdir -p "${1%/*}"; umask 077; if [ ! -e "$1" ]; then printf "%s\n" "$2" > "$1"; fi ;;
+  *) if ! output="$(printf "%s\n" "$3" | opencode auth import --standalone 2>&1)"; then printf "%s\n" "$output" >&2; exit 1; fi ;;
+esac'
 
 die() { printf 'infra-agent: %s\n' "$*" >&2; exit 1; }
 warn() { printf 'infra-agent: %s\n' "$*" >&2; }
@@ -521,9 +530,8 @@ agent_up() {
   fi
   [ "$(sandbox_status "$sandbox")" = Running ] || die 'incident sandbox did not start; retry later'
   if [ "$(jq -r '.copilotSecret // false' "$incident_meta")" = true ]; then
-    # shellcheck disable=SC2016
-    msb exec "$sandbox" -- bash -c 'set -e; mkdir -p "${1%/*}"; umask 077; if [ ! -e "$1" ]; then printf "%s\n" "$2" > "$1"; fi' \
-      infra-agent "$copilot_auth_path" "$copilot_auth_json" || die 'cannot configure the opencode Copilot placeholder in the sandbox'
+    msb exec "$sandbox" -- bash -c "$copilot_setup_script" \
+      infra-agent "$copilot_auth_path" "$copilot_auth_json" "$copilot_credential_json" || die 'cannot configure the opencode Copilot placeholder in the sandbox'
   fi
 }
 

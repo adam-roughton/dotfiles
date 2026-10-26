@@ -40,6 +40,24 @@ copilot_secret_host=api.githubcopilot.com
 copilot_auth_path=/home/adamr/.local/share/opencode/auth.json
 # shellcheck disable=SC2016
 copilot_auth_json='{"github-copilot":{"type":"oauth","refresh":"$MSB_CODE_AGENT_COPILOT_TOKEN","access":"$MSB_CODE_AGENT_COPILOT_TOKEN","expires":0}}'
+# opencode 2 keeps credentials in its database instead of auth.json (it only
+# imports auth.json when upgrading a 1.x database), so the placeholder is added
+# with `opencode auth import`. The fixed ID makes repeated imports no-ops, and
+# import only activates it when no other Copilot credential exists, so a
+# Copilot account connected inside the sandbox stays selected. Leaving out
+# metadata.apiEndpoint keeps requests on the secret's host.
+# shellcheck disable=SC2016
+copilot_credential_json='[{"id":"cred_code_agent_copilot","integrationID":"github-copilot","label":"GitHub Copilot (code-agent)","active":true,"value":{"type":"oauth","methodID":"device","refresh":"$MSB_CODE_AGENT_COPILOT_TOKEN","access":"$MSB_CODE_AGENT_COPILOT_TOKEN","expires":0}}]'
+# Configures the guest's opencode with the placeholder: auth.json for 1.x
+# images (left alone if present), the credential store for 2.x. --standalone
+# keeps opencode 2 from starting its background service with this
+# environment instead of the project's.
+# shellcheck disable=SC2016
+copilot_setup_script='set -e
+case "$(opencode --version)" in
+  0.*|1.*) mkdir -p "${1%/*}"; umask 077; if [ ! -e "$1" ]; then printf "%s\n" "$2" > "$1"; fi ;;
+  *) if ! output="$(printf "%s\n" "$3" | opencode auth import --standalone 2>&1)"; then printf "%s\n" "$output" >&2; exit 1; fi ;;
+esac'
 
 die() { printf '%s\n' "$*" >&2; exit 1; }
 command_help() {
@@ -202,19 +220,28 @@ if [ "$action" = login ]; then
   check_token_location "$(realpath -m "$workspace_directory")" "$(realpath -m "$upstream_directory")" "$(realpath -m "$cache_directory")"
   login_dir="$(mktemp -d "${TMPDIR:-/tmp}/code-agent-login.XXXXXXXX")"
   trap 'rm -rf -- "$login_dir"' EXIT
-  printf '%s\n' 'Starting the opencode sign-in. Choose "GitHub Copilot", then "GitHub.com" (also for enterprise' \
-    'accounts that sign in at github.com), and authorize in the browser as the account you want to use.' \
+  printf '%s\n' 'Starting the opencode GitHub Copilot sign-in for GitHub.com (also used by enterprise accounts' \
+    'that sign in at github.com). Authorize in the browser as the account you want to use.' \
     'The token is kept on the host only; your normal opencode credentials are not touched.' >&2
-  # A throwaway opencode data directory keeps this sign-in separate from the host's own.
-  XDG_DATA_HOME="$login_dir/data" XDG_CONFIG_HOME="$login_dir/config" XDG_STATE_HOME="$login_dir/state" \
-    XDG_CACHE_HOME="$login_dir/cache" "$opencode" auth login
-  token="$(jq -er '."github-copilot" | select(.type == "oauth") | .refresh | select(type == "string")' \
-    "$login_dir/data/opencode/auth.json" 2>/dev/null)" || die 'no GitHub Copilot sign-in was saved; run code-agent login again and choose GitHub Copilot'
+  # A throwaway opencode data directory keeps this sign-in separate from the
+  # host's own. --standalone keeps opencode 2 from handing the sign-in to an
+  # already running background service, which would store it in the host's
+  # normal database instead.
+  login_env=(XDG_DATA_HOME="$login_dir/data" XDG_CONFIG_HOME="$login_dir/config" XDG_STATE_HOME="$login_dir/state"
+    XDG_CACHE_HOME="$login_dir/cache")
+  env "${login_env[@]}" "$opencode" auth login github-copilot --method device --answer deploymentType=github.com \
+    --standalone || die 'the GitHub Copilot sign-in failed; run code-agent login again'
+  credentials="$(env "${login_env[@]}" "$opencode" auth export --standalone </dev/null 2>/dev/null)" || \
+    die 'cannot read the GitHub Copilot sign-in from opencode; run code-agent login again'
+  credential="$(jq -ce 'map(select(.integrationID == "github-copilot" and .value.type == "oauth")) | last // empty' \
+    <<< "$credentials" 2>/dev/null)" || die 'no GitHub Copilot sign-in was saved; run code-agent login again'
   # Only github.com sign-ins (including enterprise accounts on github.com) use
   # the secret's host; GHE.com or self-hosted sign-ins would need another one.
-  if jq -e '."github-copilot".enterpriseUrl // empty' "$login_dir/data/opencode/auth.json" >/dev/null; then
-    die 'GitHub Enterprise deployments with their own domain are not supported; run code-agent login again and choose "GitHub.com" (also for enterprise accounts that sign in at github.com)'
+  if jq -e '.value.metadata.enterpriseUrl // empty' <<< "$credential" >/dev/null; then
+    die 'GitHub Enterprise deployments with their own domain are not supported; run code-agent login again (also for enterprise accounts that sign in at github.com)'
   fi
+  # opencode 2 sends .access to Copilot; both hold the same GitHub OAuth token.
+  token="$(jq -er '.value.access | strings' <<< "$credential")" || die 'opencode saved an unexpected GitHub Copilot token format'
   [[ "$token" =~ ^[A-Za-z0-9_.-]+$ ]] || die 'opencode saved an unexpected GitHub Copilot token format'
   token_dir="$(dirname -- "$copilot_token_file")"
   if [ ! -d "$token_dir" ]; then mkdir -p -- "$token_dir"; chmod 700 -- "$token_dir"; fi
@@ -719,11 +746,10 @@ case "$action" in
     fi
     [ "$(sandbox_status)" = Running ] || die 'sandbox did not start; retry later'
     if [ "$copilot_sandbox" = true ]; then
-      # Point opencode at the placeholder. An existing auth.json (for example
-      # from a manual /connect inside the sandbox) is left untouched.
-      # shellcheck disable=SC2016
-      msb exec "$sandbox" -- bash -c 'set -e; mkdir -p "${1%/*}"; umask 077; if [ ! -e "$1" ]; then printf "%s\n" "$2" > "$1"; fi' \
-        code-agent "$copilot_auth_path" "$copilot_auth_json" || die 'cannot configure opencode Copilot placeholder in the sandbox'
+      # Point opencode at the placeholder. A Copilot sign-in made inside the
+      # sandbox (for example with /connect) stays selected.
+      msb exec "$sandbox" -- bash -c "$copilot_setup_script" \
+        code-agent "$copilot_auth_path" "$copilot_auth_json" "$copilot_credential_json" || die 'cannot configure opencode Copilot placeholder in the sandbox'
     fi
     warn_concurrent_caches
     printf '%s\n' 'Entering the repository. Commit before sync. Exiting leaves the sandbox running.'

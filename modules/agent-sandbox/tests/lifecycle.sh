@@ -1509,9 +1509,14 @@ copilot_token() {
 }
 placeholder_exec() {
   # shellcheck disable=SC2016
-  logged exec "$SANDBOX" -- bash -c 'set -e; mkdir -p "${1%/*}"; umask 077; if [ ! -e "$1" ]; then printf "%s\n" "$2" > "$1"; fi' \
+  logged exec "$SANDBOX" -- bash -c 'set -e
+case "$(opencode --version)" in
+  0.*|1.*) mkdir -p "${1%/*}"; umask 077; if [ ! -e "$1" ]; then printf "%s\n" "$2" > "$1"; fi ;;
+  *) if ! output="$(printf "%s\n" "$3" | opencode auth import --standalone 2>&1)"; then printf "%s\n" "$output" >&2; exit 1; fi ;;
+esac' \
     code-agent /home/adamr/.local/share/opencode/auth.json \
-    '{"github-copilot":{"type":"oauth","refresh":"$MSB_CODE_AGENT_COPILOT_TOKEN","access":"$MSB_CODE_AGENT_COPILOT_TOKEN","expires":0}}'
+    '{"github-copilot":{"type":"oauth","refresh":"$MSB_CODE_AGENT_COPILOT_TOKEN","access":"$MSB_CODE_AGENT_COPILOT_TOKEN","expires":0}}' \
+    '[{"id":"cred_code_agent_copilot","integrationID":"github-copilot","label":"GitHub Copilot (code-agent)","active":true,"value":{"type":"oauth","methodID":"device","refresh":"$MSB_CODE_AGENT_COPILOT_TOKEN","access":"$MSB_CODE_AGENT_COPILOT_TOKEN","expires":0}}]'
 }
 secret_env_log() { if [ -f "$FAKE_MSB_LOG.env" ]; then cat -- "$FAKE_MSB_LOG.env"; fi; }
 
@@ -1601,14 +1606,22 @@ copilot_login() {
   cat > "$CASE/bin/opencode" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-[ "$*" = 'auth login' ] || { printf 'unexpected opencode arguments: %s\n' "$*" >&2; exit 2; }
-printf '%s\n' "$XDG_DATA_HOME" > "$FAKE_OPENCODE_LOG"
-mkdir -p "$XDG_DATA_HOME/opencode"
-case "${FAKE_OPENCODE_PROVIDER:-github-copilot}" in
-  github-copilot) printf '%s\n' '{"anthropic":{"type":"api","key":"sk-other"},"github-copilot":{"type":"oauth","refresh":"gho_login_token","access":"gho_login_token","expires":0}}' ;;
-  enterprise-domain) printf '%s\n' '{"github-copilot":{"type":"oauth","refresh":"gho_ghe_token","access":"gho_ghe_token","expires":0,"enterpriseUrl":"company.ghe.com"}}' ;;
-  *) printf '%s\n' '{"anthropic":{"type":"api","key":"sk-other"}}' ;;
-esac > "$XDG_DATA_HOME/opencode/auth.json"
+store="$XDG_DATA_HOME/opencode/credentials.json"
+case "$*" in
+  'auth login github-copilot --method device --answer deploymentType=github.com --standalone')
+    printf '%s\n' "$XDG_DATA_HOME" > "$FAKE_OPENCODE_LOG"
+    mkdir -p "${store%/*}"
+    other='{"id":"cred_other","integrationID":"anthropic","label":"API key","active":true,"value":{"type":"key","key":"sk-other"}}'
+    case "${FAKE_OPENCODE_PROVIDER:-github-copilot}" in
+      github-copilot) printf '%s\n' "[$other,"'{"id":"cred_copilot","integrationID":"github-copilot","label":"GitHub Copilot","active":true,"value":{"type":"oauth","methodID":"device","refresh":"gho_login_token","access":"gho_login_token","expires":0,"metadata":{"apiEndpoint":"https://api.individual.githubcopilot.com"}}}]' ;;
+      enterprise-domain) printf '%s\n' '[{"id":"cred_copilot","integrationID":"github-copilot","label":"GitHub Copilot","active":true,"value":{"type":"oauth","methodID":"device","refresh":"gho_ghe_token","access":"gho_ghe_token","expires":0,"metadata":{"enterpriseUrl":"company.ghe.com"}}}]' ;;
+      failed) printf 'Device authorization failed: access_denied\n' >&2; exit 1 ;;
+      *) printf '%s\n' "[$other]" ;;
+    esac > "$store"
+    ;;
+  'auth export --standalone') cat -- "$store" ;;
+  *) printf 'unexpected opencode arguments: %s\n' "$*" >&2; exit 2 ;;
+esac
 EOF
   chmod +x "$CASE/bin/opencode"
   export FAKE_OPENCODE_LOG="$CASE/opencode.log"
@@ -1635,10 +1648,12 @@ EOF
   export FAKE_OPENCODE_PROVIDER=anthropic
   reject 'no GitHub Copilot sign-in was saved' login
   equal "$(< "$TOKEN_FILE")" gho_login_token
+  export FAKE_OPENCODE_PROVIDER=failed
+  reject 'the GitHub Copilot sign-in failed' login
+  equal "$(< "$TOKEN_FILE")" gho_login_token
   # Own-domain enterprise sign-ins would send the token to the wrong host.
   export FAKE_OPENCODE_PROVIDER=enterprise-domain
   reject 'GitHub Enterprise deployments with their own domain are not supported' login
-  contains "$OUTPUT" 'choose "GitHub.com"'
   [[ "$OUTPUT" != *gho_* ]] || fail 'refused login printed the token'
   equal "$(< "$TOKEN_FILE")" gho_login_token
   leftovers=("$CASE/tmp"/* "${TOKEN_FILE%/*}"/.copilot-token.*)

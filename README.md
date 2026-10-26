@@ -567,13 +567,15 @@ real token ever entering the sandbox. With `copilotTokenFile` set (enabled on
 code-agent login
 ```
 
-This runs opencode's GitHub Copilot device sign-in with a throwaway data
-directory, so your normal host opencode credentials are untouched. Only the
+This runs opencode's GitHub Copilot device sign-in for GitHub.com with a
+throwaway data directory and a private (`--standalone`) opencode server, so
+your normal host opencode credentials and any running opencode background
+service are untouched. Only the
 Copilot token is saved to `copilotTokenFile`, with permissions 600. Run it
 again to replace the token. To revoke it, remove the opencode app under GitHub
 → Settings → Applications → Authorized OAuth Apps.
 
-When opencode asks for the deployment type, choose **GitHub.com**. This is
+The sign-in always uses the **GitHub.com** deployment type. This is
 also correct for enterprise accounts that sign in at github.com, such as
 enterprise-managed users or Copilot Business/Enterprise seats: their Copilot
 requests go to the same `api.githubcopilot.com`. GHE.com data-residency and
@@ -593,13 +595,17 @@ How the token reaches Copilot:
   `CODE_AGENT_COPILOT_TOKEN@api.githubcopilot.com`. `code-agent` gives `msb`
   the token only through its environment, never on the command line. msb
   stores a reference to that variable, not the value.
-- Inside the sandbox, opencode's `auth.json` holds only the placeholder
-  `$MSB_CODE_AGENT_COPILOT_TOKEN`. microsandbox swaps in the real token in
+- Inside the sandbox, opencode holds only the placeholder
+  `$MSB_CODE_AGENT_COPILOT_TOKEN`. opencode 2 stores it as the credential
+  `GitHub Copilot (code-agent)` (added with `opencode auth import` on every
+  start; repeats are no-ops); images with opencode 1.x get it in `auth.json`
+  instead. microsandbox swaps in the real token in
   request headers to `api.githubcopilot.com` and nowhere else, so the agent
   and any code it runs never see the token.
-- An existing `auth.json` is left alone, so `/connect` inside a sandbox still
-  works for other providers. Connecting Copilot that way puts a real token in
-  the sandbox.
+- A Copilot account connected inside the sandbox (`/connect`) stays selected:
+  the placeholder is only activated when no other Copilot credential exists
+  (opencode 1.x: an existing `auth.json` is left alone). Connecting Copilot
+  that way puts a real token in the sandbox.
 - msb reads the token again every time the sandbox starts. A new token takes
   effect on the next start, and starting a Copilot sandbox fails if the token
   file is missing. Running or paused sandboxes don't need it.
