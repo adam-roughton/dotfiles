@@ -100,6 +100,13 @@ pkgs.dockerTools.streamLayeredImage {
       "TERMINFO_DIRS=/share/terminfo:"
       "USER=adamr"
       "DOCKER_HOST=unix:///home/adamr/.local/run/agent-docker/docker.sock"
+      # microsandbox only lets a secret placeholder reach an address while the
+      # DNS answer that returned it is live, and silently drops connections to
+      # any other address. Bun (opencode) caches lookups for 30 seconds
+      # regardless of the answer's TTL, so new Copilot connections failed with
+      # ECONNRESET whenever an answer expired first (api.githubcopilot.com has
+      # a 60 second TTL and rotating addresses). Resolve on every connection.
+      "BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS=0"
     ];
     User = "1000:1000";
     WorkingDir = "/workspace";

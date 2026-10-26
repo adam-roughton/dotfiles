@@ -624,6 +624,14 @@ with their own trust stores, notably JVM tools (Gradle, Maven, sbt, Coursier),
 and clients that pin certificates may fail TLS in Copilot sandboxes. HTTP/3
 (QUIC) is not intercepted.
 
+**DNS caching:** microsandbox only sends the token to an address while the DNS
+answer that returned it for `api.githubcopilot.com` is live (60 second TTL,
+rotating addresses), and silently closes connections that carry the
+placeholder to any other address. Clients that cache DNS past the answer's TTL
+then fail with connection resets. The image sets
+`BUN_CONFIG_DNS_TIME_TO_LIVE_SECONDS=0` so opencode (Bun) resolves for every
+new connection; other clients that carry the placeholder need the same.
+
 ### Shared Package Cache
 
 New sandboxes mount `cacheDirectory` read-write at `/cache`. All tasks and
