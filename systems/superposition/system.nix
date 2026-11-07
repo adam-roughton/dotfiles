@@ -33,6 +33,7 @@
       "unixodbc" # some python binaries hardcode brew paths
       "lima"
       "microsandbox"
+      "gnupg"
     ];
   };
 
