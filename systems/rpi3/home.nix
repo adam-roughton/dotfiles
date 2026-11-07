@@ -11,7 +11,7 @@
   services.gpg-agent = {
     enable = true;
     enableSshSupport = true;
-    sshKeys = [ user.gpgSshKeygrip.rpi3 ];
+    sshKeys = user.gpgSshKeygrip.rpi3;
   };
   
   manual.manpages.enable = true;

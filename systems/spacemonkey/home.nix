@@ -74,7 +74,7 @@
   services.gpg-agent = {
     enable = true;
     enableSshSupport = true;
-    sshKeys = [ user.gpgSshKeygrip.spacemonkey ];
+    sshKeys = user.gpgSshKeygrip.spacemonkey;
     extraConfig = ''
       pinentry-program ${pkgs.pinentry-gnome3}/bin/pinentry
     '';

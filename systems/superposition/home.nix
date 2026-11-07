@@ -31,7 +31,7 @@ in rec{
   services.gpg-agent = {
     enable = true;
     enableSshSupport = true;
-    sshKeys = [ user.gpgSshKeygrip.superposition ];
+    sshKeys = user.gpgSshKeygrip.superposition;
     pinentry.package = pkgs.pinentry_mac;
   };
   
