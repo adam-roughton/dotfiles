@@ -89,7 +89,7 @@ command_help() {
     return
   fi
   case "$command" in
-    setup) description='Create or select the task branch, publish its committed snapshot, and prepare the agent clone. Does not create a sandbox.' ;;
+    setup) description='Create or select the task branch, publish its committed snapshot, and prepare the agent clone and context repository clones. Does not create a sandbox.' ;;
     start) description='Perform setup, create or resume the sandbox, then run opencode in /workspace. Pass a command after -- to run it instead. Exiting leaves the sandbox running.' ;;
     resume) description='Start or unpause an existing sandbox, then run opencode in /workspace. Pass a command after -- to run it instead. Does not create a missing sandbox or switch the host branch.' ;;
     restart) description='Restart an existing sandbox, refreshing its Microsandbox network state, then run opencode in /workspace. Pass a command after -- to run it instead. Does not create a missing sandbox or switch the host branch.' ;;
@@ -116,6 +116,7 @@ command_help() {
     *) printf 'Unknown command: %s\n' "$command" >&2; return 2 ;;
   esac
   printf 'Usage: code-agent %s [TASK]' "$command"
+  if [ "$command" = setup ] || [ "$command" = start ]; then printf ' [--context DIR]...'; fi
   if [ "$command" = start ] || [ "$command" = resume ] || [ "$command" = restart ]; then printf ' [-- COMMAND [ARG...]]'; fi
   if [ "$command" = cleanup ]; then printf ' [TASK] [--task TASK-ID] [--all | --all-tasks] [--discard] [--dry-run]'; fi
   printf '\n\n%s\n\n' "$description"
@@ -131,6 +132,14 @@ command_help() {
   esac
   if [ "$command" = start ] || [ "$command" = resume ] || [ "$command" = restart ]; then
     printf '%s\n' 'Run command COMMAND with its arguments in /workspace instead of the default opencode.'
+  fi
+  if [ "$command" = setup ] || [ "$command" = start ]; then
+    printf '\n%s\n' \
+      'Context repositories:' \
+      '  --context DIR  Add another local Git repository as read-only reference material at' \
+      '                 /context/<name>. Repeatable; remembered by the task. Each setup or start' \
+      '                 refreshes every context to its host committed HEAD (uncommitted changes' \
+      '                 are not transferred). Mounted when the sandbox is created.'
   fi
   if [ "$command" = start ]; then
     if [ -n "$agent_profile" ]; then
@@ -264,24 +273,27 @@ if [ "$#" -gt 0 ] && [[ "$1" != --* ]]; then
   shift
 fi
 attach_command=(opencode)
-if [ "$action" = start ] || [ "$action" = resume ] || [ "$action" = restart ]; then
-  if [ "${1:-}" = -- ]; then
-    shift
-    [ "$#" -gt 0 ] || { command_help "$action" >&2; exit 2; }
-    attach_command=("$@")
-    set --
-  fi
-fi
+context_arguments=()
 discard=false
 dry_run=false
 while [ "$#" -gt 0 ]; do
-  [ "$action" = cleanup ] || { command_help "$action" >&2; exit 2; }
-  case "$1" in
-    --discard) discard=true ;;
-    --dry-run) dry_run=true ;;
-    --all) cleanup_all=true ;;
-    --all-tasks) cleanup_all_tasks=true ;;
-    --task)
+  case "$action:$1" in
+    start:--|resume:--|restart:--)
+      shift
+      [ "$#" -gt 0 ] || { command_help "$action" >&2; exit 2; }
+      attach_command=("$@")
+      break
+      ;;
+    setup:--context|start:--context)
+      shift
+      [ "$#" -gt 0 ] || die '--context requires a repository directory'
+      context_arguments+=("$1")
+      ;;
+    cleanup:--discard) discard=true ;;
+    cleanup:--dry-run) dry_run=true ;;
+    cleanup:--all) cleanup_all=true ;;
+    cleanup:--all-tasks) cleanup_all_tasks=true ;;
+    cleanup:--task)
       shift
       [ "$#" -gt 0 ] || { die 'cleanup --task requires a full task ID'; }
       cleanup_task_id="$1"
@@ -388,10 +400,18 @@ repo_hash="${repo_hash:0:12}"
 # are truncated with a branch hash suffix. Normalized names never contain '-',
 # so a suffixed name cannot equal an untruncated one. Other clashes (branches
 # that normalize alike) are refused via the recorded task identity.
-repo_name="$(basename -- "$repo_root" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/_/g; s/^[_-]+//; s/[_-]+$//')"
-repo_name="$(printf '%s' "${repo_name:0:24}" | sed -E 's/[_-]+$//')"
-[ -n "$repo_name" ] || repo_name=repo
-repo_key="$repo_name-${repo_hash:0:8}"
+repository_name() {
+  local name
+  name="$(basename -- "$1" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9_-]+/_/g; s/^[_-]+//; s/[_-]+$//')"
+  name="$(printf '%s' "${name:0:24}" | sed -E 's/[_-]+$//')"
+  printf '%s\n' "${name:-repo}"
+}
+repository_key() {
+  local hash
+  hash="$(printf '%s' "$1" | sha256sum)"
+  printf '%s-%s\n' "$(repository_name "$1")" "${hash:0:8}"
+}
+repo_key="$(repository_key "$repo_root")"
 if [ "${#task_id}" -gt 40 ]; then task_id="${task_id:0:31}-${task_hash:0:8}"; fi
 task_key="$repo_key-$task_id"
 workspace_root="$(realpath -m "$workspace_directory")"
@@ -410,6 +430,9 @@ fi
 # Metadata and locks live in a hidden sibling directory that is never mounted,
 # so the sandbox cannot tamper with them.
 clone="$workspace_root/$task_key"
+# Read-only clones of context repositories, one per repository, mounted at
+# /context/<name>. A sibling of the clone, since the clone is mounted writable.
+context_root="$workspace_root/$task_key.context"
 state_root="$workspace_root/.code-agent"
 metadata="$state_root/$task_key.state"
 task_lock="$state_root/$task_key.lock"
@@ -426,7 +449,7 @@ fi
 
 check_paths() {
   local path
-  for path in "$clone" "$state_root" "$metadata" "$task_lock" "$bare_repo"; do
+  for path in "$clone" "$context_root" "$state_root" "$metadata" "$task_lock" "$bare_repo"; do
     [ "$(realpath -m "$path")" = "$path" ] || die "refusing symlinked path: $path"
   done
   [ ! -e "$clone/.git" ] || [ ! -L "$clone/.git" ] || die 'refusing a symlinked .git directory'
@@ -436,9 +459,11 @@ check_paths
 locked=false
 upstream_locked=false
 upstream_lock="${bare_repo%.git}.lock"
+context_lock=''
 scratch=''
 release() {
   [ -z "$scratch" ] || rm -rf -- "$scratch"
+  [ -z "$context_lock" ] || rmdir -- "$context_lock"
   if [ "$upstream_locked" = true ]; then rmdir -- "$upstream_lock"; fi
   if [ "$locked" = true ]; then rmdir -- "$task_lock"; fi
 }
@@ -546,6 +571,87 @@ warn_concurrent_caches() {
       'This warning does not block startup. Stop all cache users before clearing/rebuilding caches; affected task environments may also need rebuilding.' >&2
   fi
 }
+recorded_contexts() { git config --file "$metadata" --get-all task.context || true; }
+# Fills context_paths and context_names (the /context/<name> mount names) from
+# the given repository roots, refusing repositories whose names clash.
+context_paths=()
+context_names=()
+collect_contexts() {
+  local path name index
+  context_paths=()
+  context_names=()
+  for path in "$@"; do
+    name="$(repository_name "$path")"
+    for index in "${!context_names[@]}"; do
+      [ "${context_names[$index]}" != "$name" ] || \
+        die "context repositories ${context_paths[$index]} and $path would both be mounted at /context/$name; rename one of the checkouts"
+    done
+    context_paths+=("$path")
+    context_names+=("$name")
+  done
+}
+# Resolves --context arguments to repository roots that the task does not
+# record yet. Validates them together with the recorded ones before anything
+# changes.
+new_contexts=()
+resolve_contexts() {
+  local argument root recorded=() known
+  [ "${#context_arguments[@]}" -gt 0 ] || return 0
+  if [ -f "$metadata" ]; then mapfile -t recorded < <(recorded_contexts); fi
+  for argument in "${context_arguments[@]}"; do
+    root="$(git -C "$argument" rev-parse --show-toplevel 2>/dev/null)" || die "context is not a Git repository: $argument"
+    root="$(realpath -e "$root")"
+    [[ "$root" != *$'\n'* ]] || die 'paths containing newlines are unsupported'
+    [ "$root" != "$repo_root" ] || die "context repository is the task repository itself: $root"
+    for known in "${recorded[@]}" "${new_contexts[@]}"; do
+      [ "$known" != "$root" ] || continue 2
+    done
+    new_contexts+=("$root")
+  done
+  collect_contexts "${recorded[@]}" "${new_contexts[@]}"
+}
+# Publishes a context repository's committed HEAD to its bare upstream (the
+# one it would use as a task repository) and checks it out in the task's
+# read-only clone. The clone is updated on the host, so a running sandbox sees
+# the new files immediately.
+refresh_context() {
+  local source="$1" name="$2" key bare lock target commit path attempts=0
+  key="$(repository_key "$source")"
+  bare="$upstream_root/$key.git"
+  lock="$upstream_root/$key.lock"
+  target="$context_root/$name"
+  [ -d "$source" ] && [ "$(git -C "$source" rev-parse --show-toplevel 2>/dev/null)" = "$source" ] || \
+    die "context repository is missing or no longer a Git checkout: $source"
+  commit="$(git -C "$source" rev-parse --verify --quiet 'HEAD^{commit}')" || die "context repository has no commits: $source"
+  if [ -n "$(git -C "$source" status --porcelain --untracked-files=normal)" ]; then
+    printf 'WARNING: %s has uncommitted changes; /context/%s receives its committed HEAD only.\n' "$source" "$name" >&2
+  fi
+  for path in "$bare" "$lock" "$target"; do
+    [ "$(realpath -m "$path")" = "$path" ] || die "refusing symlinked path: $path"
+  done
+  mkdir -p "$upstream_root"
+  until mkdir "$lock" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    [ "$attempts" -lt 30 ] || die "upstream is locked: $lock (remove only after confirming no command is running)"
+    sleep 1
+  done
+  context_lock="$lock"
+  if [ ! -e "$bare" ]; then git init --bare "$bare" >/dev/null; fi
+  [ "$(git -C "$bare" rev-parse --is-bare-repository)" = true ] || die "context upstream is not a bare repository: $bare"
+  git -c push.gpgSign=false -C "$source" push --quiet "$bare" "$commit:refs/heads/snapshot-$commit"
+  rmdir -- "$lock"
+  context_lock=''
+  if [ ! -e "$target" ]; then
+    mkdir -p "$context_root"
+    git init --quiet "$target"
+    git -C "$target" remote add origin "$bare"
+  fi
+  [ ! -L "$target/.git" ] && [ "$(git -C "$target" rev-parse --show-toplevel 2>/dev/null)" = "$target" ] || \
+    die "context clone missing or incomplete: $target"
+  git -C "$target" fetch --quiet origin "refs/heads/snapshot-$commit"
+  git -C "$target" checkout --quiet --detach "$commit"
+  git -C "$target" submodule update --quiet --init --recursive
+}
 if [ "$action" != setup ] && [ "$action" != sync ]; then
   command -v msb >/dev/null 2>&1 || die 'microsandbox CLI (msb) is not on PATH'
 fi
@@ -565,6 +671,7 @@ if [ "$action" = setup ] || [ "$action" = start ] || [ "$action" = sync ]; then
 fi
 
 if [ "$action" = setup ] || [ "$action" = start ]; then
+  resolve_contexts
   require_host_clean
   if git -C "$repo_root" show-ref --verify --quiet "refs/heads/$branch"; then
     git -C "$repo_root" switch --no-overwrite-ignore "$branch"
@@ -640,9 +747,25 @@ if [ "$action" = setup ] || [ "$action" = start ]; then
     ' >/dev/null
     git config --file "$metadata" task.ready true
   fi
+  for context in "${new_contexts[@]}"; do
+    git config --file "$metadata" --add task.context "$context"
+  done
+  mapfile -t recorded < <(recorded_contexts)
+  collect_contexts "${recorded[@]}"
+  for index in "${!context_paths[@]}"; do
+    refresh_context "${context_paths[$index]}" "${context_names[$index]}"
+  done
 fi
 
 printf 'Task: %s\nBranch: %s\nSandbox: %s\nWorkspace: %s\nUpstream: %s\nCache: %s\n' "$task" "$branch" "$sandbox" "$clone" "$bare_repo" "$cache_root"
+if [ -f "$metadata" ]; then
+  mapfile -t recorded < <(recorded_contexts)
+  collect_contexts "${recorded[@]}"
+  for index in "${!context_paths[@]}"; do
+    printf 'Context: %s -> /context/%s (%s)\n' "${context_paths[$index]}" "${context_names[$index]}" \
+      "$(git -C "$context_root/${context_names[$index]}" rev-parse --short HEAD 2>/dev/null || printf 'not cloned')"
+  done
+fi
 case "$action" in
   setup) ;;
   start|resume|restart)
@@ -650,6 +773,10 @@ case "$action" in
     [ "$(git config --file "$metadata" --get task.ready || true)" = true ] || die 'initialization incomplete; run code-agent setup first'
     copilot_sandbox="$(git config --file "$metadata" --get task.copilotSecret || true)"
     if sandbox_exists; then
+      # Mounts are fixed when a sandbox is created.
+      if [ "$(recorded_contexts)" != "$(git config --file "$metadata" --get-all task.mountedContext || true)" ]; then
+        die "sandbox $sandbox was created with different context repositories. Recreate it to mount them (the workspace is kept): msb stop $sandbox && msb rm --force $sandbox, then code-agent start"
+      fi
       if [ "$action" = restart ]; then
         case "$(sandbox_status)" in
           Running|Paused|Created|Stopped|Crashed)
@@ -721,6 +848,13 @@ case "$action" in
       fi
       git config --file "$metadata" task.image "$sandbox_image"
       printf 'Image: %s\nRoot disk: %s\n' "$sandbox_image" "$sandbox_root_disk"
+      context_volumes=()
+      git config --file "$metadata" --unset-all task.mountedContext || true
+      for index in "${!context_paths[@]}"; do
+        [ -d "$context_root/${context_names[$index]}/.git" ] || die "context clone is missing: $context_root/${context_names[$index]}"
+        context_volumes+=(--volume "$context_root/${context_names[$index]}:/context/${context_names[$index]}:ro")
+        git config --file "$metadata" --add task.mountedContext "${context_paths[$index]}"
+      done
       # The token reaches msb only through its environment, never its arguments.
       CODE_AGENT_COPILOT_TOKEN="$copilot_token" msb create --name "$sandbox" --cpus "$cpus" \
         --memory "$memory" \
@@ -728,6 +862,7 @@ case "$action" in
         "${network_options[@]}" \
         --volume "$bare_repo:/mnt/upstream.git:ro" \
         --volume "$clone:/workspace" \
+        ${context_volumes[@]+"${context_volumes[@]}"} \
         --volume "$cache_root:/cache" \
         --volume "$cache_root/cargo/registry:/root/.cargo/registry" \
         --volume "$cache_root/cargo/git:/root/.cargo/git" \
@@ -792,6 +927,7 @@ case "$action" in
     if [ "$dry_run" = true ]; then
       sandbox_exists || true
       printf 'Would remove sandbox %s and task workspace %s. No work-preservation checks performed.\n' "$sandbox" "$clone"
+      if [ -e "$context_root" ]; then printf 'Would remove context clones %s.\n' "$context_root"; fi
       exit 0
     fi
     if sandbox_exists; then stop_sandbox; fi
@@ -812,6 +948,8 @@ case "$action" in
     if sandbox_exists; then msb rm --force "$sandbox"; fi
     check_paths
     rm -rf -- "$clone"
+    # Context clones are read-only copies of committed host history.
+    rm -rf -- "$context_root"
     rm -f -- "$metadata"
     rmdir -- "$task_lock"
     locked=false

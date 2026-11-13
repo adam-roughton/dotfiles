@@ -16,6 +16,18 @@ read-only source material.
 - Keep generated files, build artifacts, and temporary files inside the
   writable workspace or `/tmp`.
 
+## Context Repositories
+
+- Directories under `/context` are read-only clones of other repositories the
+  host operator provided as reference material, typically libraries the
+  project depends on. Use them to read source, history, and docs (`git log`,
+  `git grep`, and similar read-only Git commands work).
+- They are not part of the task: never copy changes into them, clone them to
+  modify, or reference `/context` paths from project files or builds.
+- Each one reflects the host's last committed revision and may be refreshed
+  while the sandbox runs. If you need changes in one, report them to the host
+  operator.
+
 ## Safety
 
 - Do not attempt to remount host paths read-write or bypass the mount policy.

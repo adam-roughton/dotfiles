@@ -102,6 +102,7 @@ expected_create() {
   logged create --name "${1:-$SANDBOX}" --cpus "${3:-4}" --memory "${4:-8G}" --root-disk "$root_disk" \
     "${network[@]}" \
     --volume "$UPSTREAM:/mnt/upstream.git:ro" --volume "${2:-$CLONE}:/workspace" \
+    "${CONTEXT_VOLUMES[@]}" \
     --volume "$CACHE:/cache" \
     --volume "$CACHE/cargo/registry:/root/.cargo/registry" \
     --volume "$CACHE/cargo/git:/root/.cargo/git" \
@@ -245,6 +246,70 @@ dirty_submodule_sync() {
   setup
   printf 'uncommitted submodule work\n' >> "$CLONE/private/tracked"
   reject 'workspace has modified or untracked files' sync "$TASK"
+}
+
+context_repos() {
+  local host="$HOST" library="$CASE/repositories/Library.Core" clash="$CASE/other/library_core"
+  local second="$CASE/repositories/second" context library_key library_root
+  new_repo "$library"
+  new_repo "$clash"
+  new_repo "$second"
+  HOST="$host"
+  library_root="$(realpath -e "$library")"
+  library_key="library_core-$(short_hash "$library_root" 8)"
+  # Invalid contexts are refused before the host branch or workspace changes.
+  reject 'context is not a Git repository' setup context --context "$CASE/home"
+  reject 'context repository is the task repository itself' setup context --context "$HOST"
+  reject 'would both be mounted at /context/library_core' setup context --context "$library" --context "$clash"
+  reject '--context requires a repository directory' setup context --context
+  reject 'Usage: code-agent resume' resume context --context "$library"
+  equal "$(git -C "$HOST" branch --show-current)" feature
+  equal "$(cd -- "$CASE/workspaces" && printf '%s\n' *)" .code-agent
+
+  # Only committed context history is transferred.
+  printf 'uncommitted\n' >> "$library/tracked"
+  ok setup context --context "$library" --context "$library"
+  task_fields
+  context="$CLONE.context/library_core"
+  contains "$OUTPUT" "WARNING: $library_root has uncommitted changes"
+  contains "$OUTPUT" "Context: $library_root -> /context/library_core"
+  equal "$(git config --file "$META" --get-all task.context)" "$library_root"
+  equal "$(git -C "$context" rev-parse HEAD)" "$(git -C "$library" rev-parse HEAD)"
+  equal "$(< "$context/tracked")" "$(git -C "$library" show HEAD:tracked)"
+  equal "$(git -C "$CASE/upstream/$library_key.git" rev-parse "refs/heads/snapshot-$(git -C "$library" rev-parse HEAD)")" \
+    "$(git -C "$library" rev-parse HEAD)"
+  git -C "$library" checkout -q -- tracked
+
+  # Recorded contexts are mounted read-only when the sandbox is created.
+  ok start "$TASK"
+  CONTEXT_VOLUMES=(--volume "$context:/context/library_core:ro")
+  expected_create
+
+  # Every start refreshes the context clone in place.
+  printf 'library update\n' >> "$library/tracked"
+  git -C "$library" commit -qam 'library update'
+  ok start "$TASK"
+  equal "$(git -C "$context" rev-parse HEAD)" "$(git -C "$library" rev-parse HEAD)"
+  equal "$(< "$context/tracked")" "$(< "$library/tracked")"
+  equal "$(count_command create)" 1
+
+  # Mounts are fixed at creation, so a new context needs a new sandbox.
+  reject 'was created with different context repositories' start "$TASK" --context "$second"
+  reject 'was created with different context repositories' resume "$TASK"
+  ok stop "$TASK"
+  rm -- "$FAKE_MSB_STATE/$SANDBOX"
+  ok start "$TASK"
+  CONTEXT_VOLUMES+=(--volume "$CLONE.context/second:/context/second:ro")
+  expected_create
+  equal "$(count_command create)" 2
+
+  ok cleanup "$TASK" --dry-run
+  contains "$OUTPUT" "Would remove context clones $CLONE.context."
+  ok cleanup "$TASK"
+  removed
+  absent "$CLONE.context"
+  exists "$CASE/upstream/$library_key.git"
+  equal "$(git -C "$library" status --porcelain)" ''
 }
 
 reuse() {
@@ -1866,6 +1931,7 @@ if [ "${1:-}" = --case ]; then
       'deny@172.120.0.0/16,deny@[fd00::/8],allow@100.64.0.0/10' "$CASE/bin/agent-image")
   fi
   CREATE_EXTRA=()
+  CONTEXT_VOLUMES=()
   CACHE="${values[8]}"
   render
   export FAKE_MSB_STATE="$CASE/msb-state" FAKE_MSB_LOG="$CASE/msb.log"
@@ -1902,7 +1968,7 @@ fi
 command -v jq >/dev/null 2>&1 || fail 'jq is required'
 ROOT="$(mktemp -d "${TMPDIR:-/tmp}/code-agent-lifecycle.XXXXXXXX")"
 trap 'rm -rf -- "$ROOT"' EXIT
-tests=(roundtrip main_upstream submodules submodule_sync dirty_submodule_sync reuse restart mount_isolation cache_sharing cache_reuse cache_lazy_creation
+tests=(roundtrip main_upstream submodules submodule_sync dirty_submodule_sync context_repos reuse restart mount_isolation cache_sharing cache_reuse cache_lazy_creation
   cache_missing_resume cache_start_failure_ls cache_start_failure_create
   cache_start_failure_inspect cache_start_failure_exec
   cache_overlap_repo_equal cache_overlap_repo_descendant cache_overlap_repo_ancestor

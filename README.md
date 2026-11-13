@@ -351,7 +351,8 @@ through Homebrew, but on Linux you have to install it yourself, and microsandbox
 needs access to `/dev/kvm`.
 
 ```text
-code-agent {setup|start|resume|restart} [TASK] [-- COMMAND [ARG...]]
+code-agent {setup|start} [TASK] [--context DIR]... [-- COMMAND [ARG...]]
+code-agent {resume|restart} [TASK] [-- COMMAND [ARG...]]
 code-agent {stop|status|sync|cleanup} [TASK] [--discard] [--dry-run]
 code-agent login
 code-agent help [COMMAND]
@@ -379,7 +380,8 @@ This entrypoint covers coding workflows only. Production triage uses
 with its own agent profile (see
 [Agent Profiles and Skills](#agent-profiles-and-skills)).
 
-The flags are valid only for `cleanup`. Run host commands from the original
+The `--context` flag is valid for `setup` and `start`, and the other flags only
+for `cleanup`. Run host commands from the original
 host Git checkout. Without a task name, the current branch identifies the task.
 On `main`, `setup` and `start` prompt for a task branch; other commands require
 switching to the task branch or passing a name explicitly.
@@ -726,10 +728,13 @@ same-named checkouts in different places stay separate:
 ```text
 <workspaceDirectory>/
   dotfiles-1a2b3c4d-improve_api/              # task clone, mounted at /workspace
+  dotfiles-1a2b3c4d-improve_api.context/      # only with --context
+    mylib/                                    # read-only context clone, mounted at /context/mylib
   .code-agent/dotfiles-1a2b3c4d-improve_api.state
   .code-agent/dotfiles-1a2b3c4d-improve_api.lock/   # only while a command runs
 <upstreamDirectory>/
   dotfiles-1a2b3c4d.git                       # read-only bare upstream, shared per checkout
+  mylib-5e6f7a8b.git                          # context repository's bare upstream
 sandbox: <sandboxPrefix>-dotfiles-1a2b3c4d-improve_api
 ```
 
@@ -798,6 +803,39 @@ exit
 
 Commits are required: `sync` transfers committed Git history, not working-tree
 changes or the agent's conversation state.
+
+### Context Repositories
+
+Give the agent other local repositories as reference material, for example the
+source of libraries the task repository uses:
+
+```sh
+ca start "Improve API" --context ~/src/mylib --context ~/src/otherlib
+```
+
+Each context repository is handled like the task repository, but read-only. Its
+committed `HEAD` is pushed to its own bare upstream (the same
+`<upstreamDirectory>/<repo>-<hash>.git` it would use as a task repository) and
+checked out, detached, in a separate per-task clone on the host. That clone,
+including its `.git` and recursive submodules, is mounted read-only at
+`/context/<repo>`, so the agent can read files and run `git log` or
+`git grep` but cannot change them. The bare upstream is not mounted, and
+nothing in a context repository is ever synced back.
+
+- `--context` accepts any directory inside a Git checkout and records the
+  checkout's root in the task metadata. Later `setup` and `start` runs reuse
+  the recorded contexts without repeating the flag.
+- Every `setup` and `start` refreshes each context clone to the host's current
+  committed `HEAD`. A running sandbox sees the update immediately. Uncommitted
+  changes are not transferred; `code-agent` warns about them.
+- Mounts are fixed when the sandbox is created. Adding a context to a task whose
+  sandbox already exists records and clones it, then refuses to attach until
+  the sandbox is recreated (`msb stop <sandbox> && msb rm --force <sandbox>`, then
+  `ca start`; the workspace is kept). `resume` and `restart` refuse the same way.
+- Contexts whose directory names normalize to the same `<repo>` are refused,
+  as is the task repository itself.
+- `ca status` lists the recorded contexts and their checked-out commits.
+  `cleanup` removes the task's context clones but keeps their bare upstreams.
 
 ### Stop, Resume, Restart, and Status
 
