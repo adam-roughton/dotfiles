@@ -255,6 +255,47 @@ load_copilot_token() {
   IFS= read -r copilot_token < "$file" || true
   [[ "$copilot_token" =~ ^[A-Za-z0-9_.-]+$ ]] || die "Copilot token file must contain a single token: $file (run code-agent login)"
 }
+agent_secret_specs='[]'
+agent_secret_options=()
+agent_secret_environment=()
+msb_agent_secret_environment=()
+validate_agent_secrets() {
+  agent_secret_specs="$(jq -c '.agent.secrets // []' "$config")"
+  jq -e 'type == "array" and all(.[]; (.name | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$")) and
+    (.hosts | type == "array" and length > 0 and all(.[]; type == "string" and test("^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$"))) and
+    (((.env | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$")) and (.command == null)) or
+     ((.command | type == "string" and length > 0) and (.env == null)))) and
+    ([.[].name] | length == (unique | length)) and all(.[]; .name != "CODE_AGENT_COPILOT_TOKEN")' \
+    <<< "$agent_secret_specs" >/dev/null || die 'invalid agent secret declarations (unique names and exactly one valid env or command source are required)'
+  agent_secret_options=()
+  agent_secret_environment=()
+}
+resolve_agent_secret_values() {
+  local spec name source command value hosts
+  agent_secret_options=()
+  agent_secret_environment=()
+  while IFS= read -r spec; do
+    name="$(jq -r '.name' <<< "$spec")"
+    source="$(jq -r '.env // empty' <<< "$spec")"
+    command="$(jq -r '.command // empty' <<< "$spec")"
+    hosts="$(jq -r '.hosts | join(",")' <<< "$spec")"
+    if [ -n "$source" ]; then
+      value="${!source-}"
+      [ -n "$value" ] || die "host environment variable $source for secret $name is unset or empty"
+    else
+      value="$(sh -c "$command")" || die "secret command for $name failed"
+      [ -n "$value" ] && [[ "$value" != *$'\n'* ]] || die "secret command for $name must print exactly one non-empty line"
+    fi
+    agent_secret_options+=(--secret "$name@$hosts")
+    agent_secret_environment+=("$name=$value")
+  done < <(jq -c '.[]' <<< "$agent_secret_specs")
+}
+msb_with_agent_secrets() (
+  local assignment
+  for assignment in "${msb_agent_secret_environment[@]}"; do export "${assignment?}"; done
+  export "CODE_AGENT_COPILOT_TOKEN=$copilot_token"
+  exec msb "$@"
+)
 
 # ---- infra-credd and DNS ------------------------------------------------------------
 credd_running() {
@@ -475,6 +516,7 @@ ensure_incident_token() {
 }
 agent_create() {
   local options=() rules llm opencode_config copilot=false
+  resolve_agent_secret_values
   rules=()
   while IFS= read -r llm; do [ -z "$llm" ] || rules+=("allow@$llm:tcp:443"); done < <(conf '.llmHosts[]')
   # The broker is the agent's only other destination.
@@ -487,10 +529,12 @@ agent_create() {
   else
     warn 'dotfiles.infraAgent.copilotTokenFile is not set; opencode has no model credentials in the VM'
   fi
+  if [ "${#agent_secret_options[@]}" -gt 0 ]; then options+=("${agent_secret_options[@]}"); fi
   opencode_config="$(jq -c .agent.opencodeConfig "$config")"
-  jq -n --arg env "$environment" --arg sandbox "$sandbox" --argjson copilot "$copilot" \
-    '{environment: $env, sandbox: $sandbox, copilotSecret: $copilot, created: (now | todate)}' > "$incident_meta"
-  CODE_AGENT_COPILOT_TOKEN="$copilot_token" msb create --name "$sandbox" --cpus "$(conf .agent.cpus)" \
+  jq -n --arg env "$environment" --arg sandbox "$sandbox" --argjson copilot "$copilot" --argjson secrets "$agent_secret_specs" \
+    '{environment: $env, sandbox: $sandbox, copilotSecret: $copilot, agentSecrets: $secrets, created: (now | todate)}' > "$incident_meta"
+  msb_agent_secret_environment=("${agent_secret_environment[@]}")
+  msb_with_agent_secrets create --name "$sandbox" --cpus "$(conf .agent.cpus)" \
     --memory "$(conf .agent.memory)" --root-disk "$(conf .agent.rootDisk)" \
     "${options[@]}" \
     --volume "$workspace:/workspace" \
@@ -507,16 +551,23 @@ agent_create() {
 }
 agent_up() {
   local copilot
+  validate_agent_secrets
   if sandbox_exists "$sandbox"; then
     copilot="$(jq -r '.copilotSecret // false' "$incident_meta")"
+    [ "$(jq -c '.agentSecrets // []' "$incident_meta")" = "$agent_secret_specs" ] || \
+      die "agent secret declarations changed for $sandbox; recreate the incident sandbox with infra-agent cleanup then infra-agent start"
     case "$(sandbox_status "$sandbox")" in
       Running) ;;
       Paused) msb resume "$sandbox" ;;
       Created|Stopped|Crashed)
         # msb re-reads secret values from its environment on every start.
+        resolve_agent_secret_values
         if [ "$copilot" = true ]; then
           load_copilot_token
-          CODE_AGENT_COPILOT_TOKEN="$copilot_token" msb start "$sandbox"
+        fi
+        msb_agent_secret_environment=("${agent_secret_environment[@]}")
+        if [ "$copilot" = true ] || [ "${#agent_secret_environment[@]}" -gt 0 ]; then
+          msb_with_agent_secrets start "$sandbox"
         else
           msb start "$sandbox"
         fi

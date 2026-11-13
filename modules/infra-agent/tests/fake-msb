@@ -7,7 +7,7 @@ set -euo pipefail
 printf '%q ' "$@" >> "$FAKE_MSB_LOG"
 printf '\n' >> "$FAKE_MSB_LOG"
 # Record secrets received through the environment (never through arguments).
-for variable in CODE_AGENT_COPILOT_TOKEN INFRA_DD_API_KEY INFRA_DD_APP_KEY; do
+for variable in CODE_AGENT_COPILOT_TOKEN INFRA_DD_API_KEY INFRA_DD_APP_KEY HOST_SECRET PROJECT_SECRET; do
   if [ -n "${!variable:-}" ]; then printf '%s %s=%s\n' "$1" "$variable" "${!variable}" >> "$FAKE_MSB_LOG.env"; fi
 done
 command="${1:?}"

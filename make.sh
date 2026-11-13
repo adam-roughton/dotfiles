@@ -13,12 +13,12 @@ image_command="${DOTFILES_IMAGE_COMMAND:-$0 image}"
 usage() {
   if [ -n "${DOTFILES_IMAGE_COMMAND:-}" ]; then
     echo "usage: $DOTFILES_IMAGE_COMMAND [agent|broker] [--force] [NIX OPTIONS...]" >&2
-    echo "       $DOTFILES_IMAGE_COMMAND project DIR [--name NAME] [--force] [--print-root-disk] [NIX OPTIONS...]" >&2
+    echo "       $DOTFILES_IMAGE_COMMAND project DIR [--name NAME] [--force] [--print-root-disk|--print-secrets] [NIX OPTIONS...]" >&2
     exit 1
   fi
   echo "usage: $0 {build|image|vm|disk-image|firmware|switch|update|clean} [SYSTEM] [OPTIONS...]" >&2
   echo "       $0 image [agent|broker] [--force] [NIX OPTIONS...]" >&2
-  echo "       $0 image project DIR [--name NAME] [--force] [--print-root-disk] [NIX OPTIONS...]" >&2
+  echo "       $0 image project DIR [--name NAME] [--force] [--print-root-disk|--print-secrets] [NIX OPTIONS...]" >&2
   exit 1
 }
 
@@ -153,7 +153,7 @@ nix-collect-garbage >&2 || echo "warning: garbage collection of the builder stor
 # Project images (make.sh image project). Expects AGENT_PROJECT_SHELL and
 # AGENT_PROJECT_IMAGE in the environment and the project directory mounted at
 # its host path. Arguments: "key" or "build", the image system, then extra nix
-# options. Writes the image key or the image tarball to stdout.
+# options. Writes the image key, secret declarations, or image tarball to stdout.
 # shellcheck disable=SC2016
 CONTAINER_PROJECT_SCRIPT="$CONTAINER_PRELUDE"'
 action="$1"
@@ -170,6 +170,9 @@ case "$action" in
     ;;
   config)
     nix eval --impure --raw "$project.rootDisk" "$@"
+    ;;
+  config-secrets)
+    nix eval --impure --raw "$project.secrets" "$@"
     ;;
   build)
     # print-dev-env points $out at ./outputs; project.nix rewrites that
@@ -381,7 +384,8 @@ project_image() {
   local project_name="$2"
   local force="$3"
   local print_root_disk="$4"
-  shift 4
+  local print_secrets="$5"
+  shift 5
 
   [ -d "$project_dir" ] || {
     echo "not a directory: $project_dir" >&2
@@ -444,6 +448,17 @@ project_image() {
       cat "$build_dir/root-disk"
     else
       AGENT_PROJECT_SHELL="$shell_file" "${nix_project[@]}" eval --impure --raw "$project_attr.rootDisk" "$@"
+    fi
+    return
+  fi
+
+  if [ "$print_secrets" = true ]; then
+    if [ "$darwin" = true ]; then
+      run_in_builder_container "$image_system" "$build_dir/secrets" "$CONTAINER_PROJECT_SCRIPT" \
+        "${container_options[@]}" -- config-secrets "$image_system" "$@"
+      cat "$build_dir/secrets"
+    else
+      AGENT_PROJECT_SHELL="$shell_file" "${nix_project[@]}" eval --impure --raw "$project_attr.secrets" "$@"
     fi
     return
   fi
@@ -533,6 +548,7 @@ case "$mode" in
       shift
       project_name=''
       print_root_disk=false
+      print_secrets=false
       while [ "$#" -gt 0 ]; do
         case "$1" in
           --name)
@@ -548,10 +564,14 @@ case "$mode" in
             print_root_disk=true
             shift
             ;;
+          --print-secrets)
+            print_secrets=true
+            shift
+            ;;
           *) break ;;
         esac
       done
-      project_image "$project_dir" "$project_name" "$force" "$print_root_disk" "$@"
+      project_image "$project_dir" "$project_name" "$force" "$print_root_disk" "$print_secrets" "$@"
       exit 0
     fi
     if [ "${1:-}" = "--force" ]; then

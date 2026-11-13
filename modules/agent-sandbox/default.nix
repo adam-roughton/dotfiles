@@ -19,6 +19,15 @@ let
   network = lib.types.strMatching "([0-9]{1,3}(\\.[0-9]{1,3}){3}(/[0-9]{1,2})?|[0-9a-fA-F.]*:[0-9a-fA-F:.]*(/[0-9]{1,3})?)";
   # microsandbox requires IPv6 targets to be bracketed.
   networkRule = action: address: "${action}@${if lib.hasInfix ":" address then "[${address}]" else address}";
+  secretModule = lib.types.submodule ({ ... }: {
+    options = {
+      name = lib.mkOption { type = lib.types.strMatching "[A-Za-z_][A-Za-z0-9_]*"; description = "Environment variable name exposed as the Microsandbox secret."; };
+      hosts = lib.mkOption { type = lib.types.nonEmptyListOf hostname; description = "HTTPS hostnames permitted to receive this secret."; };
+      env = lib.mkOption { type = lib.types.nullOr (lib.types.strMatching "[A-Za-z_][A-Za-z0-9_]*"); default = null; description = "Host environment variable to capture."; };
+      command = lib.mkOption { type = lib.types.nullOr lib.types.nonEmptyStr; default = null; description = "Host shell command that prints the secret on one line."; };
+    };
+  });
+  hostname = lib.types.strMatching "[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?";
   # Explicit rules are evaluated before profile rules, and the first match wins,
   # so denies are listed first to override both allows and profiles.
   networkRules = map (networkRule "deny") cfg.deniedNetworks ++ map (networkRule "allow") cfg.allowedNetworks;
@@ -28,7 +37,7 @@ let
     name = "code-agent";
     runtimeInputs = with pkgs; [ coreutils gnused git jq ];
     text = lib.replaceStrings
-      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@rootDisk@" "@networkProfiles@" "@networkRules@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" "@agentProfile@" "@agentImage@" ]
+      [ "@workspaceDirectory@" "@upstreamDirectory@" "@sandboxPrefix@" "@image@" "@cpus@" "@memory@" "@rootDisk@" "@networkProfiles@" "@networkRules@" "@cacheDirectory@" "@copilotTokenFile@" "@opencodeConfig@" "@opencode@" "@agentProfile@" "@agentImage@" "@secrets@" ]
       (map lib.escapeShellArg [ cfg.workspaceDirectory cfg.upstreamDirectory cfg.sandboxPrefix cfg.image (toString cfg.cpus) cfg.memory cfg.rootDisk (lib.concatStringsSep "," cfg.networkProfiles) (lib.concatStringsSep "," networkRules) cfg.cacheDirectory
         (if cfg.copilotTokenFile == null then "" else cfg.copilotTokenFile)
         # `toJSON` drops string context. Appending an empty substring preserves
@@ -36,7 +45,8 @@ let
         (builtins.toJSON cfg.opencodeConfig + builtins.substring 0 0 (builtins.toString inputs.self))
         opencode
         (if cfg.agentProfile == null then "" else cfg.agentProfile)
-        "${agentImage}/bin/agent-image" ])
+        "${agentImage}/bin/agent-image"
+        (builtins.toJSON (map (s: { inherit (s) name hosts env command; }) cfg.secrets)) ])
       (builtins.readFile ./scripts/code-agent);
   };
 in with lib; {
@@ -132,6 +142,20 @@ in with lib; {
           for the sandbox's HTTPS traffic. Null disables the Copilot secret.
         '';
       };
+      secrets = mkOption {
+        type = types.listOf secretModule;
+        default = [ ];
+        example = literalExpression ''[
+          { name = "NPM_TOKEN"; hosts = [ "registry.npmjs.org" ]; env = "HOST_NPM_TOKEN"; }
+          { name = "INTERNAL_API_KEY"; hosts = [ "api.example.com" ]; command = "pass show api/example"; }
+        ]'';
+        description = ''
+          Additional Microsandbox secrets for every code-agent project. Set exactly one of `env`
+          (captured from the host environment when starting the sandbox) or `command` (run on the
+          host; stdout must be exactly one non-empty line). Values are passed to msb through its
+          environment, never command-line arguments.
+        '';
+      };
       opencodeConfig = mkOption {
         type = json.type;
         default = { };
@@ -158,6 +182,15 @@ in with lib; {
   };
 
   config = {
+    assertions = map (s: {
+      assertion = (s.env != null) != (s.command != null);
+      message = "dotfiles.agentSandbox.secrets.${s.name}: set exactly one of env or command.";
+    }) cfg.secrets ++ [
+      { assertion = lib.length (lib.unique (map (s: s.name) cfg.secrets)) == lib.length cfg.secrets;
+        message = "dotfiles.agentSandbox.secrets must not declare the same secret name more than once."; }
+      { assertion = cfg.copilotTokenFile == null || !(builtins.elem "CODE_AGENT_COPILOT_TOKEN" (map (s: s.name) cfg.secrets));
+        message = "dotfiles.agentSandbox.secrets cannot redeclare CODE_AGENT_COPILOT_TOKEN when Copilot token injection is enabled."; }
+    ];
     warnings = optional (cfg.agentProfile != null && hasAttrByPath [ "skills" "paths" ] cfg.opencodeConfig)
       "dotfiles.agentSandbox.opencodeConfig sets skills.paths, which replaces the skills of agent profile '${cfg.agentProfile}'. Add the skills to the profile instead.";
     dotfiles.agentSandbox.opencodeConfig = {

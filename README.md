@@ -165,12 +165,28 @@ the host before the sandbox is created, rather than exported into the guest:
 pkgs.mkShell {
   # buildInputs and other shell settings
   passthru.codeAgent.rootDisk = "24G";
+  passthru.codeAgent.secrets = [
+    # Read HOST_PACKAGE_TOKEN from the host environment at sandbox start.
+    { name = "PACKAGE_TOKEN"; hosts = [ "packages.example.com" ]; env = "HOST_PACKAGE_TOKEN"; }
+    # Or run a host-side command; stdout must contain one non-empty line.
+    { name = "DEPLOY_KEY"; hosts = [ "deploy.example.com" ]; command = "pass show projects/deploy-key"; }
+  ];
 }
 ```
 
 The size must be a positive Microsandbox size such as `24G` or `512M`. Existing
 sandboxes retain their disk size; clean up and recreate one to apply a changed
 setting.
+
+Host-wide secrets can be declared in `dotfiles.agentSandbox.secrets`; individual
+repositories can add them in `shell.nix` under `passthru.codeAgent.secrets`.
+Both locations support the same fields: `name` is the environment variable
+visible to the sandbox, `hosts` limits Microsandbox substitution to those
+HTTPS hostnames, and exactly one of `env` or `command` supplies the value.
+Values are resolved on the host for create/start/restart and passed to `msb`
+through its process environment, not its arguments. Keep values out of the
+command text itself. Secret routing changes require recreating the sandbox;
+value rotations are read on its next start.
 
 After rebuilding the image, verify inside a new sandbox with:
 
@@ -431,6 +447,10 @@ dotfiles.agentSandbox = {
   deniedNetworks = [ "172.120.0.0/16" ];
   allowedNetworks = [ ];
   copilotTokenFile = "${config.home.homeDirectory}/development/agent/credentials/github-copilot-token";
+  secrets = [
+    { name = "NPM_TOKEN"; hosts = [ "registry.npmjs.org" ]; env = "HOST_NPM_TOKEN"; }
+    { name = "INTERNAL_API_KEY"; hosts = [ "api.example.com" ]; command = "pass show api/example"; }
+  ];
   opencodeConfig = { model = "github-copilot/claude-opus-5.5"; };
   agentProfile = "code";
 };
@@ -453,6 +473,7 @@ All settings except `enabled` are optional and have these defaults:
 | `deniedNetworks` | `[ ]` |
 | `allowedNetworks` | `[ ]` |
 | `copilotTokenFile` | `null` (no Copilot secret) |
+| `secrets` | `[ ]` |
 | `opencodeConfig` | `{ autoupdate = false; share = "disabled"; }`, merged with your settings |
 | `agentProfile` | `code` (`null` for no profile) |
 
@@ -962,6 +983,10 @@ for company details. Every network rule is derived from what you declare here:
 dotfiles.infraAgent = {
   enabled = true;
   # copilotTokenFile and the model default to the code-agent settings.
+  agent.secrets = [
+    { name = "INTERNAL_API_KEY"; hosts = [ "api.example.com" ]; env = "HOST_API_KEY"; }
+    { name = "BUILD_TOKEN"; hosts = [ "build.example.com" ]; command = "pass show build/token"; }
+  ];
   environments.prod = {
     description = "production";
     vpns = {

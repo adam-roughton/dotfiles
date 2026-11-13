@@ -18,6 +18,14 @@ let
   hostname = types.strMatching "[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?";
   absolutePath = types.strMatching "/[^\n:]*";
   size = types.strMatching "[1-9][0-9]*[KMG]?";
+  secretModule = types.submodule ({ ... }: {
+    options = {
+      name = lib.mkOption { type = types.strMatching "[A-Za-z_][A-Za-z0-9_]*"; description = "Environment variable name exposed as the Microsandbox secret."; };
+      hosts = lib.mkOption { type = types.nonEmptyListOf hostname; description = "HTTPS hostnames permitted to receive this secret."; };
+      env = lib.mkOption { type = types.nullOr (types.strMatching "[A-Za-z_][A-Za-z0-9_]*"); default = null; description = "Host environment variable to capture."; };
+      command = lib.mkOption { type = types.nullOr types.nonEmptyStr; default = null; description = "Host shell command that prints the secret on one line."; };
+    };
+  });
 
   privateTargetOptions = {
     cidrs = mkOption {
@@ -322,6 +330,7 @@ let
     agent = {
       inherit (cfg.agent) image cpus memory rootDisk profile;
       opencodeConfig = cfg.agent.opencodeConfig;
+      secrets = map (s: { inherit (s) name hosts env command; }) cfg.agent.secrets;
     };
     broker = { inherit (cfg.broker) image cpus memory rootDisk; };
     environments = lib.mapAttrs (_: e: e.cli) environments;
@@ -406,6 +415,19 @@ in
         default = { };
         description = "opencode settings for new agent VMs (OPENCODE_CONFIG_CONTENT), e.g. the model.";
       };
+      secrets = mkOption {
+        type = types.listOf secretModule;
+        default = [ ];
+        example = literalExpression ''[
+          { name = "INTERNAL_API_KEY"; hosts = [ "api.example.com" ]; env = "HOST_API_KEY"; }
+          { name = "BUILD_TOKEN"; hosts = [ "build.example.com" ]; command = "pass show build/token"; }
+        ]'';
+        description = ''
+          Additional Microsandbox secrets for each infra-agent VM. Set exactly one of `env`
+          (captured from the host at start) or `command` (run on the host; stdout must be one
+          non-empty line). Values are passed to msb through its environment, never its arguments.
+        '';
+      };
     };
     broker = {
       image = mkOption { type = types.nonEmptyStr; default = "dotfiles-infra-broker:latest"; description = "Broker image (make.sh image broker)."; };
@@ -429,6 +451,14 @@ in
         assertion = lib.length (lib.unique (lib.concatMap (n: [ ports.${n} (ports.${n} + 1) ]) names)) == 2 * lib.length names;
         message = "dotfiles.infraAgent.environments: broker ports (and port + 1 for DNS) must not overlap.";
       }
+    ] ++ (map (s: {
+      assertion = (s.env != null) != (s.command != null);
+      message = "dotfiles.infraAgent.agent.secrets.${s.name}: set exactly one of env or command.";
+    }) cfg.agent.secrets) ++ [
+      { assertion = lib.length (lib.unique (map (s: s.name) cfg.agent.secrets)) == lib.length cfg.agent.secrets;
+        message = "dotfiles.infraAgent.agent.secrets must not declare the same secret name more than once."; }
+      { assertion = !(builtins.elem "CODE_AGENT_COPILOT_TOKEN" (map (s: s.name) cfg.agent.secrets));
+        message = "dotfiles.infraAgent.agent.secrets cannot redeclare CODE_AGENT_COPILOT_TOKEN."; }
     ];
     dotfiles.infraAgent.agent.opencodeConfig = {
       autoupdate = lib.mkDefault false;

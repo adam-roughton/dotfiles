@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
 : "${FAKE_MSB_STATE:?}" "${FAKE_MSB_LOG:?}"
@@ -8,6 +8,8 @@ printf '\n' >> "$FAKE_MSB_LOG"
 if [ -n "${CODE_AGENT_COPILOT_TOKEN:-}" ]; then
   printf '%s %s\n' "$1" "$CODE_AGENT_COPILOT_TOKEN" >> "$FAKE_MSB_LOG.env"
 fi
+if [ -n "${HOST_SECRET:-}" ]; then printf '%s %s\n' "$1" "$HOST_SECRET" >> "$FAKE_MSB_LOG.env"; fi
+if [ -n "${PROJECT_SECRET:-}" ]; then printf '%s %s\n' "$1" "$PROJECT_SECRET" >> "$FAKE_MSB_LOG.env"; fi
 command="${1:?}"
 shift
 if [ "${FAKE_MSB_FAIL:-}" = "$command" ]; then

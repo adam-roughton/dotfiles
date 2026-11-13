@@ -19,6 +19,7 @@ opencode=@opencode@
 agent_profile=@agentProfile@
 # Builds microsandbox images (make.sh image, from the dotfiles in the Nix store).
 agent_image=@agentImage@
+host_secret_specs=@secrets@
 # Installed in the image by dotfiles.agentProfiles (modules/agent-profiles).
 agent_profile_directory=/home/adamr/.config/agent-profiles
 # Runs in the guest before every attach, with project_activation as its first
@@ -222,6 +223,39 @@ load_copilot_token() {
   IFS= read -r copilot_token < "$copilot_token_file" || true
   [[ "$copilot_token" =~ ^[A-Za-z0-9_.-]+$ ]] || die "Copilot token file must contain a single token: $copilot_token_file (run code-agent login)"
 }
+
+# Resolve custom secret values only immediately before an msb operation. The
+# declaration (not the value) is recorded so changing a secret's routing needs
+# a recreated sandbox, while rotations are picked up on every start.
+secret_specs='[]'
+secret_options=()
+secret_environment=()
+msb_secret_environment=()
+load_secret_values() {
+  local spec name source command value hosts
+  secret_options=()
+  secret_environment=()
+  while IFS= read -r spec; do
+    name="$(jq -r '.name' <<< "$spec")"
+    source="$(jq -r '.env // empty' <<< "$spec")"
+    command="$(jq -r '.command // empty' <<< "$spec")"
+    hosts="$(jq -r '.hosts | join(",")' <<< "$spec")"
+    if [ -n "$source" ]; then
+      value="${!source-}"
+      [ -n "$value" ] || die "host environment variable $source for secret $name is unset or empty"
+    else
+      value="$(sh -c "$command")" || die "secret command for $name failed"
+      [ -n "$value" ] && [[ "$value" != *$'\n'* ]] || die "secret command for $name must print exactly one non-empty line"
+    fi
+    secret_options+=(--secret "$name@$hosts")
+    secret_environment+=("$name=$value")
+  done < <(jq -c '.[]' <<< "$secret_specs")
+}
+msb_with_secrets() (
+  local assignment
+  for assignment in "${msb_secret_environment[@]}"; do export "${assignment?}"; done
+  exec msb "$@"
+)
 
 if [ "$action" = login ]; then
   [ "$#" -eq 0 ] || { command_help login >&2; exit 2; }
@@ -469,6 +503,12 @@ release() {
 }
 trap release EXIT
 if [ "$action" = setup ] || [ "$action" = start ] || [ "$action" = cleanup ]; then
+  # A cleanup may finish removing a task whose workspace was deleted
+  # externally, but do not let an arbitrary unrecorded task name create and
+  # then immediately erase an empty workspace state directory.
+  if [ "$action" = cleanup ] && [ ! -f "$metadata" ] && [ "$branch" != "$host_branch" ]; then
+    die "task is not set up: $clone"
+  fi
   mkdir -p "$state_root"
 else
   [ -f "$metadata" ] || die "task is not set up: $clone"
@@ -771,8 +811,25 @@ case "$action" in
   start|resume|restart)
     require_clone
     [ "$(git config --file "$metadata" --get task.ready || true)" = true ] || die 'initialization incomplete; run code-agent setup first'
+    secret_specs="$host_secret_specs"
+    if [ -f "$repo_root/shell.nix" ]; then
+      project_secret_specs="$("$agent_image" project "$repo_root" --name "$repo_key" --print-secrets)" || \
+        die 'cannot evaluate project secrets from shell.nix'
+      secret_specs="$(jq -cn --argjson host "$host_secret_specs" --argjson project "$project_secret_specs" '$host + $project')" || \
+        die 'invalid secret declarations'
+    fi
+    jq -e 'type == "array" and all(.[]; (.name | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$")) and
+      (.hosts | type == "array" and length > 0 and all(.[]; type == "string" and test("^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$"))) and
+      (((.env | type == "string" and test("^[A-Za-z_][A-Za-z0-9_]*$")) and (.command == null)) or
+       ((.command | type == "string" and length > 0) and (.env == null)))) and
+      ([.[].name] | length == (unique | length))' <<< "$secret_specs" >/dev/null || \
+      die 'secret declarations need unique names, non-empty hosts, and exactly one valid env or command source'
+    jq -e --arg copilot "$copilot_secret_env" 'all(.[]; .name != $copilot)' <<< "$secret_specs" >/dev/null || \
+      die "custom secret name conflicts with reserved Copilot secret $copilot_secret_env"
     copilot_sandbox="$(git config --file "$metadata" --get task.copilotSecret || true)"
     if sandbox_exists; then
+      [ "$(git config --file "$metadata" --get task.secrets || printf '[]')" = "$secret_specs" ] || \
+        die "secret declarations changed for sandbox $sandbox. Recreate it to update secret routing: msb stop $sandbox && msb rm --force $sandbox, then code-agent start"
       # Mounts are fixed when a sandbox is created.
       if [ "$(recorded_contexts)" != "$(git config --file "$metadata" --get-all task.mountedContext || true)" ]; then
         die "sandbox $sandbox was created with different context repositories. Recreate it to mount them (the workspace is kept): msb stop $sandbox && msb rm --force $sandbox, then code-agent start"
@@ -782,12 +839,14 @@ case "$action" in
           Running|Paused|Created|Stopped|Crashed)
             # A restart rebuilds Microsandbox's host-side network gateway after
             # host sleep while retaining the sandbox's disk and mounts.
+            load_secret_values
             if [ "$copilot_sandbox" = true ]; then
               load_copilot_token
-              CODE_AGENT_COPILOT_TOKEN="$copilot_token" msb restart "$sandbox"
+              msb_secret_environment=("${secret_environment[@]}" "CODE_AGENT_COPILOT_TOKEN=$copilot_token")
             else
-              msb restart "$sandbox"
+              msb_secret_environment=("${secret_environment[@]}")
             fi
+            msb_with_secrets restart "$sandbox"
             ;;
           *) die 'sandbox is transitioning or has unknown status; retry later' ;;
         esac
@@ -797,12 +856,14 @@ case "$action" in
           Paused) msb resume "$sandbox" ;;
           Created|Stopped|Crashed)
             # msb re-reads secret values from its environment on every start.
+            load_secret_values
             if [ "$copilot_sandbox" = true ]; then
               load_copilot_token
-              CODE_AGENT_COPILOT_TOKEN="$copilot_token" msb start "$sandbox"
+              msb_secret_environment=("${secret_environment[@]}" "CODE_AGENT_COPILOT_TOKEN=$copilot_token")
             else
-              msb start "$sandbox"
+              msb_secret_environment=("${secret_environment[@]}")
             fi
+            msb_with_secrets start "$sandbox"
             ;;
           *) die 'sandbox is transitioning or has unknown status; retry later' ;;
         esac
@@ -810,6 +871,7 @@ case "$action" in
     elif [ "$action" = resume ] || [ "$action" = restart ]; then
       die "sandbox is absent; use code-agent start to recreate it"
     else
+      load_secret_values
       create_options=()
       network_options=(--net "$network_profiles")
       # Explicit rules are evaluated before the profiles' rules.
@@ -823,7 +885,9 @@ case "$action" in
         load_copilot_token
         copilot_sandbox=true
         create_options+=(--secret "$copilot_secret_env@$copilot_secret_host")
+        secret_environment+=("$copilot_secret_env=$copilot_token")
       fi
+      if [ "${#secret_options[@]}" -gt 0 ]; then create_options+=(--tls-intercept "${secret_options[@]}"); fi
       mkdir -p "$cache_root"
       for cache in cargo/registry cargo/git gradle/caches gradle/wrapper maven/repository ivy; do
         [ "$(realpath -m "$cache_root/$cache")" = "$cache_root/$cache" ] || die 'refusing symlinked package cache directory'
@@ -831,6 +895,7 @@ case "$action" in
       done
       git config --file "$metadata" task.cacheDirectory "$cache_root"
       git config --file "$metadata" task.copilotSecret "$copilot_sandbox"
+      git config --file "$metadata" task.secrets "$secret_specs"
       # A shell.nix in the host checkout (tracked or not) selects a project
       # image with its environment, built on first use and whenever the shell
       # or the agent image definition changes. Existing sandboxes keep theirs.
@@ -856,7 +921,8 @@ case "$action" in
         git config --file "$metadata" --add task.mountedContext "${context_paths[$index]}"
       done
       # The token reaches msb only through its environment, never its arguments.
-      CODE_AGENT_COPILOT_TOKEN="$copilot_token" msb create --name "$sandbox" --cpus "$cpus" \
+      msb_secret_environment=("${secret_environment[@]}")
+      msb_with_secrets create --name "$sandbox" --cpus "$cpus" \
         --memory "$memory" \
         --root-disk "$sandbox_root_disk" \
         "${network_options[@]}" \

@@ -122,6 +122,7 @@ expected_create() {
 render() {
   local template index value
   template="$(< "$TEMPLATE")"
+  template="${template/#\#!\/usr\/bin\/env bash/#!\/bin\/bash}"
   values[8]="$CACHE"
   for index in "${!keys[@]}"; do
     printf -v value '%q' "${values[$index]}"
@@ -1669,7 +1670,7 @@ copilot_token_checks() {
 
 copilot_login() {
   cat > "$CASE/bin/opencode" <<'EOF'
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 store="$XDG_DATA_HOME/opencode/credentials.json"
 case "$*" in
@@ -1764,10 +1765,10 @@ image_replacement() {
   local make="$TEST_DIR/../../../make.sh" built="$CASE/image-built"
   # Build through a fake Linux nix on every host so no real image is built.
   # shellcheck disable=SC2016 # The fake's own arguments expand when it runs.
-  printf '#!/usr/bin/env bash\n[ "${1:-}" != -s ] || { echo Linux; exit 0; }\nexec %q "$@"\n' \
+  printf '#!/bin/bash\n[ "${1:-}" != -s ] || { echo Linux; exit 0; }\nexec %q "$@"\n' \
     "$(type -P uname)" > "$CASE/bin/uname"
-  printf '#!/usr/bin/env bash\nprintf "%%s\\n" %q\n' "$CASE/bin/image-stream" > "$CASE/bin/nix"
-  printf '#!/usr/bin/env bash\n: > %q\nprintf "image tarball\\n"\n' "$built" > "$CASE/bin/image-stream"
+  printf '#!/bin/bash\nprintf "%%s\\n" %q\n' "$CASE/bin/image-stream" > "$CASE/bin/nix"
+  printf '#!/bin/bash\n: > %q\nprintf "image tarball\\n"\n' "$built" > "$CASE/bin/image-stream"
   chmod +x "$CASE/bin/uname" "$CASE/bin/nix" "$CASE/bin/image-stream"
   setup
   ok start "$TASK"
@@ -1844,12 +1845,12 @@ store_source_image() {
   cp -- "$TEST_DIR/../../../make.sh" "$TEST_DIR/../../../flake.nix" "$source/"
   : > "$source/private/marker"
   # shellcheck disable=SC2016 # The fakes' own arguments expand when they run.
-  printf '#!/usr/bin/env bash\ncase "${1:-}" in -s) echo Darwin ;; -m) echo arm64 ;; *) exec %q "$@" ;; esac\n' \
+  printf '#!/bin/bash\ncase "${1:-}" in -s) echo Darwin ;; -m) echo arm64 ;; *) exec %q "$@" ;; esac\n' \
     "$(type -P uname)" > "$CASE/bin/uname"
   # The fake builder records its arguments and the streamed source, then
   # writes an image tarball.
   # shellcheck disable=SC2016
-  printf '#!/usr/bin/env bash\n[ "$1" = run ] || exit 0\nprintf "%%s\\n" "$@" > %q\ntar -t -f - | LC_ALL=C sort > %q.source\nprintf "image tarball\\n"\n' \
+  printf '#!/bin/bash\n[ "$1" = run ] || exit 0\nprintf "%%s\\n" "$@" > %q\ntar -t -f - | LC_ALL=C sort > %q.source\nprintf "image tarball\\n"\n' \
     "$docker_log" "$docker_log" > "$CASE/bin/docker"
   chmod +x "$CASE/bin/uname" "$CASE/bin/docker"
   if OUTPUT="$(DOTFILES_IMAGE_COMMAND=agent-image bash "$source/make.sh" image --help 2>&1)"; then fail 'help succeeded'; fi
@@ -1913,6 +1914,24 @@ command_help() {
   equal "$(git -C "$CASE/repositories/project" show-ref)" "$before"
 }
 
+secret_injection() {
+  printf 'shell\n' > "$HOST/shell.nix"
+  git -C "$HOST" add shell.nix
+  git -C "$HOST" commit -qm 'add project shell'
+  values[15]='[{"name":"HOST_SECRET","hosts":["host.example.com"],"env":"HOST_SECRET","command":null}]'
+  render
+  export HOST_SECRET=host-secret
+  export FAKE_PROJECT_SECRETS='[{"name":"PROJECT_SECRET","hosts":["project.example.com"],"env":null,"command":"printf project-secret"}]'
+  export FAKE_AGENT_IMAGE=dotfiles-agent:project-test
+  ok start secrets
+  contains "$(< "$FAKE_MSB_LOG")" '--tls-intercept --secret HOST_SECRET@host.example.com --secret PROJECT_SECRET@project.example.com'
+  contains "$(< "$FAKE_MSB_LOG.env")" 'create host-secret'
+  contains "$(< "$FAKE_MSB_LOG.env")" 'create project-secret'
+  [[ "$(< "$FAKE_MSB_LOG")" != *host-secret* ]] || fail 'host secret appeared in msb arguments'
+  [[ "$(< "$FAKE_MSB_LOG")" != *project-secret* ]] || fail 'project secret appeared in msb arguments'
+  unset HOST_SECRET FAKE_PROJECT_SECRETS FAKE_AGENT_IMAGE
+}
+
 if [ "${1:-}" = --case ]; then
   CASE_NAME="$2"
   CASE="$3"
@@ -1922,19 +1941,20 @@ if [ "${1:-}" = --case ]; then
   export GIT_CONFIG_GLOBAL="$CASE/gitconfig"
   # Render the same shell-escaped settings that Home Manager bakes into the command.
   SCRIPT="$CASE/bin/code-agent"
-  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory rootDisk networkProfiles cacheDirectory copilotTokenFile opencodeConfig opencode agentProfile networkRules agentImage)
+  keys=(workspaceDirectory upstreamDirectory sandboxPrefix image cpus memory rootDisk networkProfiles cacheDirectory copilotTokenFile opencodeConfig opencode agentProfile networkRules agentImage secrets)
   values=("$CASE/workspaces" "$CASE/upstream" code-agent dotfiles-agent:latest 4 8G 12G public "$CASE/package-cache"
-    '' '{"autoupdate":false,"share":"disabled"}' "$CASE/bin/opencode" code '' "$CASE/bin/agent-image")
+    '' '{"autoupdate":false,"share":"disabled"}' "$CASE/bin/opencode" code '' "$CASE/bin/agent-image" '[]')
   if [ "$CASE_NAME" = configured_settings ]; then
     values=("$CASE/workspaces with ' quotes" "$CASE/upstream with spaces" custom-prefix custom-agent:configured 2 512M 16G 'public,private' "$CASE/package cache with ' quotes"
       '' '{"model":"github-copilot/example model","share":"disabled"}' "$CASE/bin/opencode" data_agent
-      'deny@172.120.0.0/16,deny@[fd00::/8],allow@100.64.0.0/10' "$CASE/bin/agent-image")
+      'deny@172.120.0.0/16,deny@[fd00::/8],allow@100.64.0.0/10' "$CASE/bin/agent-image" '[]')
   fi
   CREATE_EXTRA=()
   CONTEXT_VOLUMES=()
   CACHE="${values[8]}"
   render
   export FAKE_MSB_STATE="$CASE/msb-state" FAKE_MSB_LOG="$CASE/msb.log"
+  unset CODE_AGENT_COPILOT_TOKEN HOST_SECRET PROJECT_SECRET FAKE_PROJECT_SECRETS FAKE_AGENT_IMAGE
   unset FAKE_MSB_FAIL FAKE_MSB_FAIL_INSPECT_NAME FAKE_MSB_NO_TRANSITION FAKE_MSB_EXEC_LOCK FAKE_MSB_EXEC_SCRIPT FAKE_MSB_EXEC_TASK
   : > "$FAKE_MSB_LOG"
   # The tracked fixture need not have its executable bit set.
@@ -1942,7 +1962,7 @@ if [ "${1:-}" = --case ]; then
   # agent-image (make.sh image from the Nix store) logs its arguments and
   # reports FAKE_AGENT_IMAGE, or its project's root disk setting.
   # shellcheck disable=SC2016 # The fake's own variables expand when it runs.
-  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> %q\n[ "${FAKE_AGENT_IMAGE_STATUS:-0}" = 0 ] || exit "$FAKE_AGENT_IMAGE_STATUS"\nfor argument in "$@"; do [ "$argument" != --print-root-disk ] || { printf "%%s\\n" "${FAKE_AGENT_ROOT_DISK:-}"; exit; }; done\nprintf "%%s\\n" "${FAKE_AGENT_IMAGE:-}"\n' \
+  printf '#!/bin/bash\nprintf "%%s\\n" "$*" >> %q\nfor argument in "$@"; do [ "$argument" != --print-root-disk ] || { printf "%%s\\n" "${FAKE_AGENT_ROOT_DISK:-}"; exit; }; [ "$argument" != --print-secrets ] || { printf "%%s\\n" "${FAKE_PROJECT_SECRETS:-[]}"; exit; }; done\n[ "${FAKE_AGENT_IMAGE_STATUS:-0}" = 0 ] || exit "$FAKE_AGENT_IMAGE_STATUS"\nprintf "%%s\\n" "${FAKE_AGENT_IMAGE:-}"\n' \
     "$CASE/agent-image.log" > "$CASE/bin/agent-image"
   chmod +x "$CASE/bin/msb" "$CASE/bin/agent-image"
   export PATH="$CASE/bin:$PATH"
@@ -1986,7 +2006,7 @@ tests=(roundtrip main_upstream submodules submodule_sync dirty_submodule_sync co
   checked_out_destination no_main lock_refusal wrong_branch paused_lifecycle
   inspect_failure start_failure resume_failure transition_verification reflog_cleanup
   stash_cleanup annotated_tag_cleanup signed_push concurrent_setup interactive_lock copilot_secret copilot_existing_sandbox
-  copilot_token_checks copilot_login configured_settings image_replacement project_image project_root_disk store_source_image command_help)
+  copilot_token_checks copilot_login configured_settings image_replacement project_image project_root_disk secret_injection store_source_image command_help)
 passed=0
 failed=0
 for test in "${tests[@]}"; do

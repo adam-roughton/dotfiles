@@ -325,6 +325,27 @@ attach_command() {
   logged exec --tty infra-agent-inc_1 -- zsh -c "$ATTACH_SCRIPT" infra-agent bash -l
 }
 
+agent_custom_secrets() {
+  jq '.agent.secrets = [
+    {name: "HOST_SECRET", hosts: ["host.example.com"], env: "HOST_SECRET", command: null},
+    {name: "PROJECT_SECRET", hosts: ["project.example.com"], env: null, command: "printf project-secret"}
+  ]' "$CASE/infra-agent.json" > "$CASE/infra-agent.updated.json"
+  mv "$CASE/infra-agent.updated.json" "$CASE/infra-agent.json"
+  export HOST_SECRET=host-secret
+  ok start inc-1
+  contains "$(< "$FAKE_MSB_LOG")" '--secret HOST_SECRET@host.example.com --secret PROJECT_SECRET@project.example.com'
+  contains "$(< "$FAKE_MSB_LOG.env")" 'create HOST_SECRET=host-secret'
+  contains "$(< "$FAKE_MSB_LOG.env")" 'create PROJECT_SECRET=project-secret'
+  [[ "$(< "$FAKE_MSB_LOG")" != *host-secret* ]] || fail 'host secret appeared in msb arguments'
+  [[ "$(< "$FAKE_MSB_LOG")" != *project-secret* ]] || fail 'command secret appeared in msb arguments'
+
+  printf 'Stopped\n' > "$FAKE_MSB_STATE/infra-agent-inc_1"
+  export HOST_SECRET=rotated-secret
+  ok resume inc-1
+  contains "$(< "$FAKE_MSB_LOG.env")" 'start HOST_SECRET=rotated-secret'
+  unset HOST_SECRET
+}
+
 command_help() {
   ok help
   contains "$OUTPUT" 'Usage: infra-agent COMMAND'
@@ -370,6 +391,7 @@ if [ "${1:-}" = --case ]; then
   chmod +x "$CASE/bin/msb" "$CASE/bin/aws" "$CASE/bin/az"
   export PATH="$CASE/bin:$PATH"
   export FAKE_MSB_STATE="$CASE/msb-state" FAKE_MSB_LOG="$CASE/msb.log"
+  unset CODE_AGENT_COPILOT_TOKEN HOST_SECRET PROJECT_SECRET
   : > "$FAKE_MSB_LOG"
   : > "$FAKE_MSB_LOG.env"
   # shellcheck disable=SC2329 # invoked by the EXIT trap
@@ -390,7 +412,7 @@ command -v curl >/dev/null 2>&1 || fail 'curl is required'
 ROOT="$(mktemp -d "${TMPDIR:-/tmp}/infra-agent-lifecycle.XXXXXXXX")"
 trap 'rm -rf -- "$ROOT"' EXIT
 tests=(start_creates_broker_and_agent agent_isolation broker_reuse broker_recreated_on_change resume_stop_cleanup
-  environment_binding revoke secret_command_failure unhealthy_broker expired_sso copilot_token_checks
+  environment_binding revoke secret_command_failure agent_custom_secrets unhealthy_broker expired_sso copilot_token_checks
   creds_and_audit attach_command command_help)
 passed=0
 failed=0
